@@ -1,5 +1,5 @@
 import * as Brevo from '@getbrevo/brevo';
-import { BrevoContact, LeadTag, TAG_TO_LIST_ID } from './types';
+import { BrevoContact, LeadTag, TAG_TO_LIST_ID, PURCHASERS_LIST_ID } from './types';
 
 const apiInstance = new Brevo.ContactsApi();
 apiInstance.setApiKey(
@@ -78,6 +78,8 @@ export async function markAsPurchased(
     HAS_PURCHASED: true,
     ORDER_ID: orderId,
   };
+  // Add to purchasers list (#18 - WooCommerce)
+  updateContact.listIds = [PURCHASERS_LIST_ID];
 
   try {
     await apiInstance.updateContact(email, updateContact);

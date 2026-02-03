@@ -5,171 +5,186 @@
  * 1. Open your Google Sheet
  * 2. Go to Extensions > Apps Script
  * 3. Delete any existing code and paste this script
- * 4. Update WEBHOOK_URL and API_KEY with your values
- * 5. Save the project
- * 6. Run the setupTrigger() function once to set up automatic triggers
+ * 4. Save the project (Ctrl+S)
+ * 5. Run setupTrigger() once to configure automatic processing
  *
- * SHEET FORMAT (expected columns):
- * A: Timestamp
+ * COMPATIBLE WITH:
+ * - ManyChat integration (API writes)
+ * - Manual data entry
+ * - Form submissions
+ *
+ * SHEET FORMAT:
+ * A: Name
  * B: Email
- * C: Name (optional)
- * D: Phone (optional)
- * E: Source (optional, defaults to "instagram")
- * F: Tag (optional, defaults to "general")
- * G: Status (will be updated by script)
- * H: Response (will be updated by script)
+ * C: Timestamp (optional)
+ * D: ID (optional)
+ * E: Status (updated by script: SUCCESS, FAILED, SKIPPED, ERROR)
  */
 
 // ============== CONFIGURATION ==============
-const WEBHOOK_URL = 'https://your-app.vercel.app/api/webhook/sheet';
-const API_KEY = 'your-api-secret-key';
+const WEBHOOK_URL = 'https://nexo-mail.vercel.app/api/webhook/sheet';
+const API_KEY = 'nexo-secret-2024-urocarrillo';
+const EMAIL_COLUMN = 2;  // Column B = Email
+const NAME_COLUMN = 1;   // Column A = Name
+const STATUS_COLUMN = 5; // Column E = Status
 // ===========================================
 
 /**
- * Trigger function that runs when a new row is added
+ * onChange trigger - fires on ANY change including API writes (ManyChat)
+ * This is the main trigger for production use
  */
-function onFormSubmit(e) {
-  const sheet = e.source.getActiveSheet();
-  const row = e.range.getRow();
-
-  processRow(sheet, row);
-}
-
-/**
- * Manual trigger to process a specific row
- */
-function processRow(sheet, row) {
-  const data = sheet.getRange(row, 1, 1, 6).getValues()[0];
-
-  const [timestamp, email, name, phone, source, tag] = data;
-
-  // Skip if no email
-  if (!email || !email.toString().includes('@')) {
-    sheet.getRange(row, 7).setValue('SKIPPED');
-    sheet.getRange(row, 8).setValue('Invalid or missing email');
+function onChange(e) {
+  if (!e || e.changeType !== 'EDIT' && e.changeType !== 'INSERT_ROW') {
+    // For other change types, process all pending
+    processAllPending();
     return;
   }
 
-  // Prepare payload
+  // For edits, process all pending rows
+  processAllPending();
+}
+
+/**
+ * onEdit trigger - fires only on manual edits in the UI
+ * Backup trigger for manual testing
+ */
+function onEdit(e) {
+  if (!e || !e.range) return;
+
+  const sheet = e.source.getActiveSheet();
+  const row = e.range.getRow();
+
+  // Skip header row
+  if (row > 1) {
+    processRow(sheet, row);
+  }
+}
+
+/**
+ * Process a single row
+ */
+function processRow(sheet, row) {
+  const statusCell = sheet.getRange(row, STATUS_COLUMN);
+  const currentStatus = statusCell.getValue();
+
+  // Skip if already processed
+  if (currentStatus === 'SUCCESS' || currentStatus === 'SKIPPED') {
+    return;
+  }
+
+  const name = sheet.getRange(row, NAME_COLUMN).getValue();
+  const email = sheet.getRange(row, EMAIL_COLUMN).getValue();
+
+  // Validate email
+  if (!email || !email.toString().includes('@')) {
+    statusCell.setValue('SKIPPED');
+    return;
+  }
+
   const payload = {
     email: email.toString().trim().toLowerCase(),
     name: name ? name.toString().trim() : undefined,
-    phone: phone ? phone.toString().trim() : undefined,
-    source: source ? source.toString().trim() : 'instagram',
-    tag: tag ? tag.toString().trim() : 'general'
+    source: 'instagram',
+    tag: 'general'
   };
 
-  // Remove undefined values
+  // Remove undefined
   Object.keys(payload).forEach(key => {
-    if (payload[key] === undefined) {
-      delete payload[key];
-    }
+    if (payload[key] === undefined) delete payload[key];
   });
 
   try {
     const response = UrlFetchApp.fetch(WEBHOOK_URL, {
       method: 'POST',
       contentType: 'application/json',
-      headers: {
-        'X-API-Key': API_KEY
-      },
+      headers: { 'X-API-Key': API_KEY },
       payload: JSON.stringify(payload),
       muteHttpExceptions: true
     });
 
-    const responseCode = response.getResponseCode();
-    const responseBody = response.getContentText();
-
-    let status, message;
-
-    try {
-      const jsonResponse = JSON.parse(responseBody);
-      status = jsonResponse.success ? 'SUCCESS' : 'FAILED';
-      message = jsonResponse.message || responseBody;
-    } catch {
-      status = responseCode === 200 ? 'SUCCESS' : 'FAILED';
-      message = responseBody;
-    }
-
-    sheet.getRange(row, 7).setValue(status);
-    sheet.getRange(row, 8).setValue(message.substring(0, 500)); // Limit length
+    const result = JSON.parse(response.getContentText());
+    statusCell.setValue(result.success ? 'SUCCESS' : 'FAILED');
 
   } catch (error) {
-    sheet.getRange(row, 7).setValue('ERROR');
-    sheet.getRange(row, 8).setValue(error.toString().substring(0, 500));
+    statusCell.setValue('ERROR');
+    Logger.log('Row ' + row + ' error: ' + error.toString());
   }
 }
 
 /**
- * Process all pending rows (useful for batch processing)
+ * Process all rows without SUCCESS status
  */
 function processAllPending() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   const lastRow = sheet.getLastRow();
+  let processed = 0;
 
-  for (let row = 2; row <= lastRow; row++) { // Start from row 2 (skip header)
-    const status = sheet.getRange(row, 7).getValue();
+  for (let row = 2; row <= lastRow; row++) {
+    const status = sheet.getRange(row, STATUS_COLUMN).getValue();
 
-    // Only process rows without a status or with ERROR status
-    if (!status || status === 'ERROR' || status === 'PENDING') {
+    if (!status || status === 'ERROR' || status === 'FAILED') {
       processRow(sheet, row);
-
-      // Add a small delay to avoid rate limiting
-      Utilities.sleep(500);
+      processed++;
+      Utilities.sleep(300); // Rate limit protection
     }
   }
+
+  Logger.log('Processed ' + processed + ' rows');
 }
 
 /**
- * Set up trigger for form submissions
- * Run this function once during initial setup
+ * Set up the onChange trigger for ManyChat/API writes
+ * RUN THIS FUNCTION ONCE after pasting the script
  */
 function setupTrigger() {
-  // Remove existing triggers
+  // Remove existing triggers from this project
   const triggers = ScriptApp.getProjectTriggers();
-  triggers.forEach(trigger => {
-    if (trigger.getHandlerFunction() === 'onFormSubmit') {
-      ScriptApp.deleteTrigger(trigger);
-    }
-  });
+  triggers.forEach(trigger => ScriptApp.deleteTrigger(trigger));
 
-  // Create new trigger
-  ScriptApp.newTrigger('onFormSubmit')
+  // Create onChange trigger (catches ManyChat API writes)
+  ScriptApp.newTrigger('onChange')
     .forSpreadsheet(SpreadsheetApp.getActive())
-    .onFormSubmit()
+    .onChange()
     .create();
 
-  Logger.log('Trigger set up successfully!');
+  // Create onEdit trigger (backup for manual edits)
+  ScriptApp.newTrigger('onEdit')
+    .forSpreadsheet(SpreadsheetApp.getActive())
+    .onEdit()
+    .create();
+
+  Logger.log('Triggers configured successfully!');
+  Logger.log('- onChange: For ManyChat/API writes');
+  Logger.log('- onEdit: For manual edits');
 }
 
 /**
- * Test the webhook connection
+ * Test webhook connection
  */
 function testConnection() {
   try {
     const response = UrlFetchApp.fetch(WEBHOOK_URL, {
       method: 'GET',
+      headers: { 'X-API-Key': API_KEY },
       muteHttpExceptions: true
     });
-
-    Logger.log('Response Code: ' + response.getResponseCode());
-    Logger.log('Response Body: ' + response.getContentText());
-
+    Logger.log('Status: ' + response.getResponseCode());
+    Logger.log('Response: ' + response.getContentText());
     return response.getResponseCode() === 200;
   } catch (error) {
-    Logger.log('Error: ' + error.toString());
+    Logger.log('Error: ' + error);
     return false;
   }
 }
 
 /**
- * Create menu for manual operations
+ * Add menu to spreadsheet
  */
 function onOpen() {
-  const ui = SpreadsheetApp.getUi();
-  ui.createMenu('Nexo Mail')
+  SpreadsheetApp.getUi()
+    .createMenu('Nexo Mail')
     .addItem('Process All Pending', 'processAllPending')
     .addItem('Test Connection', 'testConnection')
-    .addItem('Setup Trigger', 'setupTrigger')
+    .addItem('Setup Triggers', 'setupTrigger')
     .addToUi();
 }

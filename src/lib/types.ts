@@ -12,7 +12,7 @@ export interface Lead {
   updatedAt: string;
 }
 
-export type LeadTag = 'general' | 'reel-fitness' | 'reel-nutricion' | 'story-promo';
+export type LeadTag = 'general' | 'programa-de' | 'eyaculacion-precoz' | 'youtube';
 
 export type LeadStatus = 'new' | 'subscribed' | 'purchased' | 'error';
 
@@ -77,8 +77,11 @@ export interface DashboardMetrics {
 
 // Tag to Brevo List ID mapping
 export const TAG_TO_LIST_ID: Record<LeadTag, number> = {
-  'general': 1,
-  'reel-fitness': 2,
-  'reel-nutricion': 3,
-  'story-promo': 4,
+  'general': 16,           // Leads WooCommerce
+  'programa-de': 9,        // DISFUNCIÓN ERÉCTIL
+  'eyaculacion-precoz': 20, // EYACULACIÓN Precoz
+  'youtube': 14,           // YOUTUBE
 };
+
+// List ID for customers who completed a purchase
+export const PURCHASERS_LIST_ID = 18; // WooCommerce

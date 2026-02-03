@@ -20,9 +20,9 @@ const STATUS_COLORS: Record<LeadStatus, string> = {
 
 const TAG_LABELS: Record<LeadTag, string> = {
   general: 'General',
-  'reel-fitness': 'Reel Fitness',
-  'reel-nutricion': 'Reel Nutricion',
-  'story-promo': 'Story Promo',
+  'programa-de': 'Programa DE',
+  'eyaculacion-precoz': 'Eyaculación Precoz',
+  'youtube': 'YouTube',
 };
 
 export default function Dashboard() {

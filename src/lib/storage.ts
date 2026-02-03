@@ -150,9 +150,9 @@ export async function getMetrics(): Promise<DashboardMetrics> {
       errorLeads: 0,
       leadsByTag: {
         'general': 0,
-        'reel-fitness': 0,
-        'reel-nutricion': 0,
-        'story-promo': 0,
+        'programa-de': 0,
+        'eyaculacion-precoz': 0,
+        'youtube': 0,
       },
       leadsBySource: {},
     };
@@ -195,9 +195,9 @@ export async function getMetrics(): Promise<DashboardMetrics> {
       errorLeads: 0,
       leadsByTag: {
         'general': 0,
-        'reel-fitness': 0,
-        'reel-nutricion': 0,
-        'story-promo': 0,
+        'programa-de': 0,
+        'eyaculacion-precoz': 0,
+        'youtube': 0,
       },
       leadsBySource: {},
     };

@@ -3,7 +3,7 @@ import { addContactToBrevo } from '@/lib/brevo';
 import { saveLead, updateLeadStatus, getLeadByEmail } from '@/lib/storage';
 import { WebhookPayload, WebhookResponse, LeadTag } from '@/lib/types';
 
-const VALID_TAGS: LeadTag[] = ['general', 'reel-fitness', 'reel-nutricion', 'story-promo'];
+const VALID_TAGS: LeadTag[] = ['general', 'programa-de', 'eyaculacion-precoz', 'youtube'];
 
 function validateApiKey(request: NextRequest): boolean {
   const apiKey = request.headers.get('x-api-key');

@@ -153,6 +153,7 @@ export async function getMetrics(): Promise<DashboardMetrics> {
         'programa-de': 0,
         'eyaculacion-precoz': 0,
         'youtube': 0,
+        'lead-magnet-5h': 0,
       },
       leadsBySource: {},
     };
@@ -198,6 +199,7 @@ export async function getMetrics(): Promise<DashboardMetrics> {
         'programa-de': 0,
         'eyaculacion-precoz': 0,
         'youtube': 0,
+        'lead-magnet-5h': 0,
       },
       leadsBySource: {},
     };

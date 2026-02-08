@@ -53,20 +53,24 @@ describe('Brevo Integration', () => {
   });
 
   describe('TAG_TO_LIST_ID mapping', () => {
-    it('maps general to list 1', () => {
-      expect(TAG_TO_LIST_ID['general']).toBe(1);
+    it('maps general to list 16', () => {
+      expect(TAG_TO_LIST_ID['general']).toBe(16);
     });
 
-    it('maps reel-fitness to list 2', () => {
-      expect(TAG_TO_LIST_ID['reel-fitness']).toBe(2);
+    it('maps programa-de to list 9', () => {
+      expect(TAG_TO_LIST_ID['programa-de']).toBe(9);
     });
 
-    it('maps reel-nutricion to list 3', () => {
-      expect(TAG_TO_LIST_ID['reel-nutricion']).toBe(3);
+    it('maps eyaculacion-precoz to list 20', () => {
+      expect(TAG_TO_LIST_ID['eyaculacion-precoz']).toBe(20);
     });
 
-    it('maps story-promo to list 4', () => {
-      expect(TAG_TO_LIST_ID['story-promo']).toBe(4);
+    it('maps youtube to list 14', () => {
+      expect(TAG_TO_LIST_ID['youtube']).toBe(14);
+    });
+
+    it('has mapping for lead-magnet-5h', () => {
+      expect(TAG_TO_LIST_ID['lead-magnet-5h']).toBeDefined();
     });
   });
 
@@ -118,7 +122,7 @@ describe('Brevo Integration', () => {
 
       await addContactToBrevo({
         email: 'test@example.com',
-        tag: 'reel-fitness',
+        tag: 'programa-de',
       });
 
       // The function creates a new CreateContact instance and sets listIds

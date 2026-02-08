@@ -12,7 +12,7 @@ export interface Lead {
   updatedAt: string;
 }
 
-export type LeadTag = 'general' | 'programa-de' | 'eyaculacion-precoz' | 'youtube';
+export type LeadTag = 'general' | 'programa-de' | 'eyaculacion-precoz' | 'youtube' | 'lead-magnet-5h';
 
 export type LeadStatus = 'new' | 'subscribed' | 'purchased' | 'error';
 
@@ -60,6 +60,8 @@ export interface BrevoContact {
     TAG?: string;
     HAS_PURCHASED?: boolean;
     ORDER_ID?: string;
+    LEAD_SCORE?: number;
+    LEAD_MAGNET?: string;
   };
   listIds: number[];
   updateEnabled?: boolean;
@@ -81,6 +83,7 @@ export const TAG_TO_LIST_ID: Record<LeadTag, number> = {
   'programa-de': 9,        // DISFUNCIÓN ERÉCTIL
   'eyaculacion-precoz': 20, // EYACULACIÓN Precoz
   'youtube': 14,           // YOUTUBE
+  'lead-magnet-5h': 25,    // Lead Magnet 5 Herramientas
 };
 
 // List ID for customers who completed a purchase

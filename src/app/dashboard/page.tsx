@@ -23,6 +23,7 @@ const TAG_LABELS: Record<LeadTag, string> = {
   'programa-de': 'Programa DE',
   'eyaculacion-precoz': 'Eyaculación Precoz',
   'youtube': 'YouTube',
+  'lead-magnet-5h': '5 Herramientas (Lead Magnet)',
 };
 
 export default function Dashboard() {

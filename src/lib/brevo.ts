@@ -34,6 +34,10 @@ export async function addContactToBrevo(
 
   const createContact = new Brevo.CreateContact();
   createContact.email = email;
+  // Determine lead score and lead magnet based on tag
+  const isLeadMagnet = tag.startsWith('lead-magnet');
+  const leadMagnet = isLeadMagnet ? tag.replace('lead-magnet-', '') : '';
+
   createContact.attributes = {
     FIRSTNAME: firstName,
     LASTNAME: lastName,
@@ -41,6 +45,8 @@ export async function addContactToBrevo(
     SOURCE: source || 'instagram',
     TAG: tag,
     HAS_PURCHASED: false,
+    LEAD_SCORE: 1,
+    LEAD_MAGNET: leadMagnet,
   };
   createContact.listIds = [listId];
   createContact.updateEnabled = true;

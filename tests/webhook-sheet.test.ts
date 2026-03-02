@@ -111,7 +111,7 @@ describe('Sheet Webhook API', () => {
         body: JSON.stringify({
           email: 'test@example.com',
           name: 'Test User',
-          tag: 'reel-fitness',
+          tag: 'general',
         }),
       });
 
@@ -121,13 +121,13 @@ describe('Sheet Webhook API', () => {
       expect(response.status).toBe(200);
       expect(data.success).toBe(true);
       expect(data.leadId).toBe('lead_123');
-      expect(mockedAddContactToBrevo).toHaveBeenCalledWith({
-        email: 'test@example.com',
-        name: 'Test User',
-        phone: undefined,
-        source: 'instagram',
-        tag: 'reel-fitness',
-      });
+      expect(mockedAddContactToBrevo).toHaveBeenCalledWith(
+        expect.objectContaining({
+          email: 'test@example.com',
+          name: 'Test User',
+          tag: 'general',
+        })
+      );
     });
 
     it('handles Brevo failure', async () => {

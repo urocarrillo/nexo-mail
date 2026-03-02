@@ -12,7 +12,7 @@ export interface Lead {
   updatedAt: string;
 }
 
-export type LeadTag = 'general' | 'programa-de' | 'eyaculacion-precoz' | 'youtube' | 'lead-magnet-5h';
+export type LeadTag = 'general' | 'programa-de' | 'eyaculacion-precoz' | 'youtube' | 'lead-magnet-5h' | 'lead-magnet-ep' | 'lead-magnet-preservativo' | 'waitlist-programa';
 
 export type LeadStatus = 'new' | 'subscribed' | 'purchased' | 'error';
 
@@ -84,6 +84,9 @@ export const TAG_TO_LIST_ID: Record<LeadTag, number> = {
   'eyaculacion-precoz': 20, // EYACULACIÓN Precoz
   'youtube': 14,           // YOUTUBE
   'lead-magnet-5h': 25,    // Lead Magnet 5 Herramientas
+  'lead-magnet-ep': 26,    // Lead Magnet - 3 Ejercicios EP
+  'lead-magnet-preservativo': 27, // Lead Magnet - Erección y Preservativo
+  'waitlist-programa': 28, // Waitlist - Programa Ansiedad de Desempeño
 };
 
 // List ID for customers who completed a purchase

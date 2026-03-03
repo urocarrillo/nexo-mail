@@ -90,6 +90,7 @@ describe('Leads API', () => {
           'lead-magnet-ep': 0,
           'lead-magnet-preservativo': 0,
           'waitlist-programa': 0,
+          'blog-suscriptor': 0,
         },
         leadsBySource: {
           instagram: 8,

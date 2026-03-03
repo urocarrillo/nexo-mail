@@ -10,8 +10,16 @@ interface WPPost {
   excerpt: { rendered: string };
   link: string;
   slug: string;
+  status: string;
   categories: number[];
   featured_media: number;
+}
+
+interface BrevoCampaign {
+  id: number;
+  name: string;
+  status: string;
+  tag: string;
 }
 
 function stripHtml(html: string): string {
@@ -69,6 +77,18 @@ function buildEmailHtml(post: WPPost): string {
 </html>`;
 }
 
+// Check if a campaign was already sent for this postId
+async function alreadySentForPost(postId: number): Promise<boolean> {
+  const tag = `blog-post-${postId}`;
+  const res = await fetch(
+    `https://api.brevo.com/v3/emailCampaigns?type=classic&status=sent&tag=${tag}&limit=1`,
+    { headers: { 'api-key': BREVO_API_KEY } }
+  );
+  if (!res.ok) return false;
+  const data = await res.json();
+  return (data.campaigns?.length || 0) > 0;
+}
+
 export async function POST(request: NextRequest) {
   // Auth check
   const authHeader = request.headers.get('x-api-key');
@@ -77,7 +97,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { postId } = body;
+  const { postId, force } = body;
 
   if (!postId) {
     return NextResponse.json({ error: 'postId is required' }, { status: 400 });
@@ -86,7 +106,7 @@ export async function POST(request: NextRequest) {
   try {
     // 1. Fetch post from WordPress
     const wpRes = await fetch(
-      `https://urologia.ar/wp-json/wp/v2/posts/${postId}?_fields=id,title,excerpt,link,slug,categories,featured_media`,
+      `https://urologia.ar/wp-json/wp/v2/posts/${postId}?_fields=id,title,excerpt,link,slug,status,categories,featured_media`,
       { headers: { 'User-Agent': 'Nexo-mail/1.0' } }
     );
 
@@ -97,7 +117,29 @@ export async function POST(request: NextRequest) {
     const post: WPPost = await wpRes.json();
     const title = stripHtml(post.title.rendered);
 
-    // 2. Create Brevo campaign
+    // Safety: only send for published posts
+    if (post.status !== 'publish') {
+      return NextResponse.json({
+        error: `Post is "${post.status}", not "publish". Newsletter only sends for published posts.`,
+        postId,
+        postStatus: post.status,
+      }, { status: 400 });
+    }
+
+    // Duplicate protection: check if already sent for this postId
+    if (!force) {
+      const sent = await alreadySentForPost(postId);
+      if (sent) {
+        return NextResponse.json({
+          error: 'Newsletter already sent for this post. Use force:true to override.',
+          postId,
+          postTitle: title,
+          alreadySent: true,
+        }, { status: 409 });
+      }
+    }
+
+    // 2. Create Brevo campaign (tag includes postId for duplicate detection)
     const campaignRes = await fetch('https://api.brevo.com/v3/emailCampaigns', {
       method: 'POST',
       headers: {
@@ -111,7 +153,7 @@ export async function POST(request: NextRequest) {
         recipients: { listIds: [BLOG_LIST_ID] },
         htmlContent: buildEmailHtml(post),
         replyTo: 'info@urologia.ar',
-        tag: 'blog-newsletter',
+        tag: `blog-post-${postId}`,
       }),
     });
 
@@ -141,6 +183,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       campaignId,
+      postId,
       postTitle: title,
       sentToList: BLOG_LIST_ID,
     });

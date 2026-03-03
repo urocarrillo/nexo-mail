@@ -10,6 +10,7 @@ const BLOG_VALID_TAGS: LeadTag[] = [
   'lead-magnet-preservativo',
   'waitlist-programa',
   'general',
+  'blog-suscriptor',
 ];
 
 const ALLOWED_ORIGINS = [

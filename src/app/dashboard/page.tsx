@@ -27,6 +27,7 @@ const TAG_LABELS: Record<LeadTag, string> = {
   'lead-magnet-ep': 'Lead Magnet EP',
   'lead-magnet-preservativo': 'Lead Magnet Preservativo',
   'waitlist-programa': 'Waitlist Programa',
+  'blog-suscriptor': 'Suscriptor Blog',
 };
 
 export default function Dashboard() {

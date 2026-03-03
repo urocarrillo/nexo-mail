@@ -157,6 +157,7 @@ export async function getMetrics(): Promise<DashboardMetrics> {
         'lead-magnet-ep': 0,
         'lead-magnet-preservativo': 0,
         'waitlist-programa': 0,
+        'blog-suscriptor': 0,
       },
       leadsBySource: {},
     };
@@ -206,6 +207,7 @@ export async function getMetrics(): Promise<DashboardMetrics> {
         'lead-magnet-ep': 0,
         'lead-magnet-preservativo': 0,
         'waitlist-programa': 0,
+        'blog-suscriptor': 0,
       },
       leadsBySource: {},
     };

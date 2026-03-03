@@ -135,11 +135,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // Start drip email sequence (EP, Preservativo, or Waitlist)
       // For lead-magnet-5h: handled by existing Brevo automation #27
       // For general: no drip sequence
-      startDripSequence(email, tag, name).catch((err) =>
-        console.error('Drip start error:', err)
-      );
+      let drip = { started: false, emailsSent: 0, emailsScheduled: 0 };
+      try {
+        drip = await startDripSequence(email, tag, name);
+      } catch (err) {
+        console.error('Drip start error:', err);
+      }
 
-      return NextResponse.json({ success: true }, { headers });
+      return NextResponse.json({ success: true, drip }, { headers });
     } else {
       await updateLeadStatus(lead.id, 'error');
       return NextResponse.json(

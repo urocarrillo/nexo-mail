@@ -117,21 +117,13 @@ export async function startDripSequence(
   let emailsSent = 0;
   let emailsScheduled = 0;
 
+  // FIRST: schedule all future emails (so they're queued even if immediate send fails)
   for (let i = 0; i < sequence.steps.length; i++) {
     const step = sequence.steps[i];
-    const sendAt = new Date(now.getTime() + step.delayDays * 24 * 60 * 60 * 1000);
+    if (step.delayDays === 0) continue; // handle immediate separately below
 
-    if (step.delayDays === 0) {
-      // Send immediately
-      const result = await sendTemplate(step.templateId, email, name);
-      if (result.success) {
-        emailsSent++;
-        console.log(`Drip sent: ${step.subject} → ${email}`);
-      } else {
-        console.error(`Drip failed: ${step.subject} → ${email}: ${result.error}`);
-      }
-    } else {
-      // Schedule for later
+    try {
+      const sendAt = new Date(now.getTime() + step.delayDays * 24 * 60 * 60 * 1000);
       const scheduled: ScheduledEmail = {
         id: `drip_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
         email,
@@ -148,11 +140,34 @@ export async function startDripSequence(
       await kv.hset(DRIP_QUEUE_KEY, { [scheduled.id]: JSON.stringify(scheduled) });
       emailsScheduled++;
       console.log(`Drip scheduled: ${step.subject} → ${email} at ${sendAt.toISOString()}`);
+    } catch (err) {
+      console.error(`Drip schedule error for step ${i}:`, err);
+    }
+  }
+
+  // THEN: send immediate emails (Email 1)
+  for (const step of sequence.steps) {
+    if (step.delayDays !== 0) continue;
+
+    try {
+      const result = await sendTemplate(step.templateId, email, name);
+      if (result.success) {
+        emailsSent++;
+        console.log(`Drip sent: ${step.subject} → ${email}`);
+      } else {
+        console.error(`Drip send failed: ${step.subject} → ${email}: ${result.error}`);
+      }
+    } catch (err) {
+      console.error(`Drip send error: ${step.subject} → ${email}:`, err);
     }
   }
 
   // Mark as started to prevent duplicates
-  await kv.hset(DRIP_SENT_KEY, { [existingKey]: now.toISOString() });
+  try {
+    await kv.hset(DRIP_SENT_KEY, { [existingKey]: now.toISOString() });
+  } catch (err) {
+    console.error('Drip mark-started error:', err);
+  }
 
   return { started: true, emailsSent, emailsScheduled };
 }

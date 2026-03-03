@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { addContactToBrevo } from '@/lib/brevo';
 import { saveLead, updateLeadStatus, getLeadByEmail } from '@/lib/storage';
+import { startDripSequence } from '@/lib/email-drip';
 import { LeadTag } from '@/lib/types';
 
 const BLOG_VALID_TAGS: LeadTag[] = [
@@ -130,6 +131,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       await updateLeadStatus(lead.id, 'subscribed', {
         brevoContactId: brevoResult.contactId,
       });
+
+      // Start drip email sequence (EP, Preservativo, or Waitlist)
+      // For lead-magnet-5h: handled by existing Brevo automation #27
+      // For general: no drip sequence
+      startDripSequence(email, tag, name).catch((err) =>
+        console.error('Drip start error:', err)
+      );
+
       return NextResponse.json({ success: true }, { headers });
     } else {
       await updateLeadStatus(lead.id, 'error');

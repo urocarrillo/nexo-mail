@@ -135,8 +135,11 @@ export async function POST(request: NextRequest): Promise<NextResponse<WebhookRe
   const orderId = order.id.toString();
 
   try {
-    // Mark as purchased in Brevo
-    const brevoResult = await markAsPurchased(email, orderId);
+    // Extract product IDs for buyer-list assignment (cross-sell)
+    const productIds = order.line_items.map(item => item.product_id);
+
+    // Mark as purchased in Brevo (adds to list #18 + product-specific buyer lists)
+    const brevoResult = await markAsPurchased(email, orderId, productIds);
 
     // Update lead status in storage
     await markLeadAsPurchased(email, orderId);

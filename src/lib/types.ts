@@ -92,3 +92,9 @@ export const TAG_TO_LIST_ID: Record<LeadTag, number> = {
 
 // List ID for customers who completed a purchase
 export const PURCHASERS_LIST_ID = 18; // WooCommerce
+
+// Product ID to buyer-specific Brevo list (for cross-sell automations)
+export const PRODUCT_TO_BUYER_LIST: Record<number, number> = {
+  1043: 30, // Curso Preservativo → Compradores Preservativo
+  3208: 31, // Curso EP → Compradores EP
+};

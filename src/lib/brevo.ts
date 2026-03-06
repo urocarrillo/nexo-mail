@@ -1,5 +1,5 @@
 import * as Brevo from '@getbrevo/brevo';
-import { BrevoContact, LeadTag, TAG_TO_LIST_ID, PURCHASERS_LIST_ID } from './types';
+import { BrevoContact, LeadTag, TAG_TO_LIST_ID, PURCHASERS_LIST_ID, PRODUCT_TO_BUYER_LIST } from './types';
 
 const apiInstance = new Brevo.ContactsApi();
 apiInstance.setApiKey(
@@ -77,18 +77,28 @@ export async function addContactToBrevo(
 
 export async function markAsPurchased(
   email: string,
-  orderId: string
+  orderId: string,
+  productIds: number[] = []
 ): Promise<AddContactResult> {
   const updateContact = new Brevo.UpdateContact();
   updateContact.attributes = {
     HAS_PURCHASED: true,
     ORDER_ID: orderId,
   };
-  // Add to purchasers list (#18 - WooCommerce)
-  updateContact.listIds = [PURCHASERS_LIST_ID];
+
+  // Add to purchasers list (#18) + product-specific buyer lists for cross-sell
+  const listIds = [PURCHASERS_LIST_ID];
+  for (const productId of productIds) {
+    const buyerListId = PRODUCT_TO_BUYER_LIST[productId];
+    if (buyerListId) {
+      listIds.push(buyerListId);
+    }
+  }
+  updateContact.listIds = listIds;
 
   try {
     await apiInstance.updateContact(email, updateContact);
+    console.log(`Marked ${email} as purchased (order ${orderId}), added to lists: ${listIds.join(', ')}`);
     return { success: true };
   } catch (error: unknown) {
     const apiError = error as { response?: { body?: { message?: string } }; message?: string };

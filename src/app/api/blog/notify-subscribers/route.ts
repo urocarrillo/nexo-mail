@@ -81,12 +81,13 @@ function buildEmailHtml(post: WPPost): string {
 async function alreadySentForPost(postId: number): Promise<boolean> {
   const tag = `blog-post-${postId}`;
   const res = await fetch(
-    `https://api.brevo.com/v3/emailCampaigns?type=classic&status=sent&tag=${tag}&limit=1`,
+    `https://api.brevo.com/v3/emailCampaigns?type=classic&status=sent&limit=50&sort=desc`,
     { headers: { 'api-key': BREVO_API_KEY } }
   );
   if (!res.ok) return false;
   const data = await res.json();
-  return (data.campaigns?.length || 0) > 0;
+  // Brevo API doesn't filter by tag reliably — check client-side
+  return (data.campaigns || []).some((c: { tag?: string }) => c.tag === tag);
 }
 
 export async function POST(request: NextRequest) {

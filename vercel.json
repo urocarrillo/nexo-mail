@@ -8,12 +8,26 @@
     },
     "src/app/api/cron/send-emails/route.ts": {
       "maxDuration": 30
+    },
+    "src/app/api/cron/weekly-newsletter/route.ts": {
+      "maxDuration": 30
+    },
+    "src/app/api/cron/weekly-blog/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
     {
       "path": "/api/cron/send-emails",
       "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/cron/weekly-blog",
+      "schedule": "0 13 * * 1"
+    },
+    {
+      "path": "/api/cron/weekly-newsletter",
+      "schedule": "0 13 * * 2"
     }
   ]
 }

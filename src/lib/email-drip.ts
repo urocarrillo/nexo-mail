@@ -33,8 +33,8 @@ const SEQUENCES: Partial<Record<LeadTag, DripSequence>> = {
   'waitlist-programa': {
     steps: [
       { templateId: 94, delayDays: 0, subject: 'Waitlist Email 1: Confirmación' },
-      { templateId: 95, delayDays: 4, subject: 'Waitlist Email 2: Historia' },
-      { templateId: 96, delayDays: 10, subject: 'Waitlist Email 3: Recursos' },
+      // Templates #95 and #96 removed from auto-sequence (still exist in Brevo)
+      // Reason: most waitlist leads already receive 5 emails from lead-magnet-5h
     ],
   },
   // lead-magnet-5h: handled by existing Brevo automation #27

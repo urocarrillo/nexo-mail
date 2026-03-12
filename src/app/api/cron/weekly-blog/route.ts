@@ -61,7 +61,6 @@ async function getLatestVideo(): Promise<YouTubeVideo | null> {
 
   const xml = await res.text();
 
-  // Parse first entry from RSS XML
   const entryMatch = xml.match(/<entry>([\s\S]*?)<\/entry>/);
   if (!entryMatch) return null;
 
@@ -81,7 +80,6 @@ async function fetchTranscript(videoId: string): Promise<string> {
     const segments = await YoutubeTranscript.fetchTranscript(videoId, { lang: 'es' });
     return segments.map((s: { text: string }) => s.text).join(' ');
   } catch {
-    // Fallback: try without language
     try {
       const { YoutubeTranscript } = await import('youtube-transcript');
       const segments = await YoutubeTranscript.fetchTranscript(videoId);
@@ -102,11 +100,10 @@ function detectCategory(title: string, description: string, transcript: string):
     if (matches >= 1) return info;
   }
 
-  // Default
   return { id: 58, name: 'Hábitos y Estilo de Vida', playlist: CATEGORY_MAP[Object.keys(CATEGORY_MAP)[4]].playlist };
 }
 
-// ─── Claude Blog Generation ──────────────────────────────────
+// ─── Claude Blog Generation (anti-hallucination) ─────────────
 async function generateBlogPost(
   video: YouTubeVideo,
   transcript: string,
@@ -158,8 +155,18 @@ VIDEO: "${video.title}"
 VIDEO_ID: ${video.id}
 CATEGORÍA: ${category.name}
 
-TRANSCRIPCIÓN:
+TRANSCRIPCIÓN (ESTA ES TU ÚNICA FUENTE DE INFORMACIÓN):
 ${transcript.slice(0, 12000)}
+
+─── REGLA CRÍTICA: NO INVENTAR DATOS ───
+- SOLO podés usar información que aparezca en la transcripción de arriba.
+- Si un dato, porcentaje, estadística, nombre de estudio o cifra NO está en la transcripción, NO lo incluyas.
+- NUNCA uses frases como "estudios demuestran que..." o "se estima que X%..." salvo que ese dato exacto esté en la transcripción.
+- Si la transcripción dice algo vago ("es muy frecuente", "muchos hombres"), mantené esa vaguedad. NUNCA la conviertas en un número o porcentaje.
+- Si una sección necesita datos y no los tiene en la transcripción, escribí esa sección con explicaciones conceptuales sin cifras. Es preferible un artículo sin números a uno con números inventados.
+- Las FAQ deben responder SOLO con información del video. Si una pregunta no se responde en la transcripción, NO la incluyas.
+- NUNCA agregues referencias bibliográficas, nombres de papers, autores, años de estudio ni DOIs que no estén mencionados explícitamente en la transcripción.
+─────────────────────────────────────────
 
 INSTRUCCIONES:
 1. Generá un JSON con esta estructura exacta:
@@ -178,13 +185,13 @@ INSTRUCCIONES:
   <iframe src="https://www.youtube.com/embed/${video.id}" style="position:absolute; top:0; left:0; width:100%; height:100%; border:none;" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
 </div>
 
-- 3-5 SECCIONES H2: Contenido REESCRITO (no transcripción literal). Narrativa fluida para lectura web. Párrafos cortos (2-3 oraciones). Datos y estudios con fuente cuando haya.
-- Al menos 1 lista o tabla con DATOS CONCRETOS por artículo.
+- 3-5 SECCIONES H2: Contenido REESCRITO (no transcripción literal). Narrativa fluida para lectura web. Párrafos cortos (2-3 oraciones). Datos SOLO de la transcripción.
+- Al menos 1 lista o tabla con datos que estén en la transcripción. Si no hay datos concretos para una tabla, usar una lista descriptiva.
 
 - CTA PRINCIPAL (copiar exacto después de la sección 2):
 ${ctaBlock}
 
-- H2 PREGUNTAS FRECUENTES: 3-5 preguntas en formato H3 dentro del H2. Optimizado para Featured Snippets.
+- H2 PREGUNTAS FRECUENTES: 3-5 preguntas que el video RESPONDA. Formato H3 dentro del H2.
 
 ${playlistBlock ? `- CTA SECUNDARIO (copiar exacto después de las FAQ):\n${playlistBlock}` : ''}
 
@@ -202,26 +209,25 @@ ${newsletterForm}
   </span>
 </div>
 
-REGLAS:
+REGLAS DE ESTILO:
 - Títulos/H1 neutros (sin rioplatense). Cuerpo en rioplatense.
 - NO es transcripción literal — REESCRIBIR con narrativa fluida.
 - Párrafos de 2-3 oraciones máximo.
 - Orange (#E67E22) solo para links y botones CTA.
 - Firma: "Urólogo Mauro Carrillo" (NUNCA "Dr.").
+- NUNCA "urólogo especializado en salud sexual masculina" — solo "Urólogo Mauro Carrillo".
 - 1,500-2,500 palabras.
 - El JSON debe ser válido. Escapar comillas dentro del content con \\".
 
 Respondé SOLO con el JSON, sin markdown ni backticks.`;
 
   const response = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    model: 'claude-sonnet-4-6',
     max_tokens: 8000,
     messages: [{ role: 'user', content: prompt }],
   });
 
   const text = response.content[0].type === 'text' ? response.content[0].text : '';
-
-  // Parse JSON response - handle potential markdown wrapping
   const jsonStr = text.replace(/^```json?\n?/, '').replace(/\n?```$/, '').trim();
   const parsed = JSON.parse(jsonStr);
 
@@ -233,8 +239,8 @@ Respondé SOLO con el JSON, sin markdown ni backticks.`;
   };
 }
 
-// ─── WordPress Publishing ────────────────────────────────────
-async function publishToWordPress(
+// ─── WordPress: save as DRAFT ────────────────────────────────
+async function saveDraftToWordPress(
   title: string,
   slug: string,
   content: string,
@@ -244,7 +250,7 @@ async function publishToWordPress(
 ): Promise<{ postId: number; link: string }> {
   const auth = Buffer.from(`${WP_USER}:${WP_APP_PASSWORD}`).toString('base64');
 
-  // 1. Upload YouTube thumbnail as featured image
+  // Upload YouTube thumbnail as featured image
   const thumbUrl = `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
   let featuredMediaId: number | undefined;
 
@@ -270,13 +276,13 @@ async function publishToWordPress(
     // Thumbnail upload failed — continue without it
   }
 
-  // 2. Create published post
+  // Create DRAFT post (not published — verification cron will publish)
   const postData: Record<string, unknown> = {
     title,
     content,
     slug,
     excerpt,
-    status: 'publish',
+    status: 'draft',
     categories: [categoryId],
     tags: [NEWSLETTER_TAG_ID],
   };
@@ -300,50 +306,39 @@ async function publishToWordPress(
   }
 
   const post = await postRes.json();
-
-  // 3. Validate: check for escaped quotes in content
-  const validateRes = await fetch(
-    `https://urologia.ar/wp-json/wp/v2/posts/${post.id}?context=edit`,
-    { headers: { 'Authorization': `Basic ${auth}` } }
-  );
-
-  if (validateRes.ok) {
-    const validated = await validateRes.json();
-    const raw = validated.content?.raw || '';
-    if (raw.includes('\\"') || raw.includes('\\n')) {
-      // Fix escaped content
-      const cleaned = raw.replace(/\\"/g, '"').replace(/\\n/g, '\n');
-      await fetch(`https://urologia.ar/wp-json/wp/v2/posts/${post.id}`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Basic ${auth}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ content: cleaned }),
-      });
-    }
-  }
-
   return { postId: post.id, link: post.link };
 }
 
-// ─── Duplicate Check ─────────────────────────────────────────
-async function alreadyPublishedForVideo(videoId: string): Promise<boolean> {
-  // Check if a post with this video embed already exists in the last 7 days
+// ─── Duplicate Check (drafts + published) ────────────────────
+async function alreadyExistsForVideo(videoId: string): Promise<boolean> {
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const auth = Buffer.from(`${WP_USER}:${WP_APP_PASSWORD}`).toString('base64');
 
-  const res = await fetch(
+  // Check published posts
+  const pubRes = await fetch(
     `https://urologia.ar/wp-json/wp/v2/posts?status=publish&tags=${NEWSLETTER_TAG_ID}&after=${sevenDaysAgo}&per_page=5&_fields=id,content`,
     { headers: { 'Authorization': `Basic ${auth}` } }
   );
+  if (pubRes.ok) {
+    const posts = await pubRes.json();
+    if (posts.some((p: { content?: { rendered?: string } }) => p.content?.rendered?.includes(videoId))) {
+      return true;
+    }
+  }
 
-  if (!res.ok) return false;
-  const posts = await res.json();
-
-  return posts.some((p: { content?: { rendered?: string } }) =>
-    p.content?.rendered?.includes(videoId)
+  // Check draft posts too
+  const draftRes = await fetch(
+    `https://urologia.ar/wp-json/wp/v2/posts?status=draft&tags=${NEWSLETTER_TAG_ID}&after=${sevenDaysAgo}&per_page=5&_fields=id,content`,
+    { headers: { 'Authorization': `Basic ${auth}` } }
   );
+  if (draftRes.ok) {
+    const drafts = await draftRes.json();
+    if (drafts.some((p: { content?: { rendered?: string } }) => p.content?.rendered?.includes(videoId))) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 // ─── Main Handler ────────────────────────────────────────────
@@ -355,7 +350,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Check required env vars
   if (!ANTHROPIC_API_KEY) {
     return NextResponse.json({ success: false, error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
   }
@@ -382,23 +376,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       });
     }
 
-    // 2. Check duplicate
-    const alreadyDone = await alreadyPublishedForVideo(video.id);
+    // 2. Check duplicate (drafts + published)
+    const alreadyDone = await alreadyExistsForVideo(video.id);
     if (alreadyDone) {
       return NextResponse.json({
         success: true,
         skipped: true,
-        reason: `Blog post already exists for video ${video.id}`,
+        reason: `Post already exists for video ${video.id}`,
         videoTitle: video.title,
       });
     }
 
     // 3. Get transcript
     const transcript = await fetchTranscript(video.id);
-    if (!transcript || transcript.length < 200) {
-      console.log(`Transcript too short or missing for ${video.id}, using description`);
-    }
-
     const sourceText = transcript.length > 200 ? transcript : video.description;
     if (!sourceText || sourceText.length < 100) {
       return NextResponse.json({
@@ -412,11 +402,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // 4. Detect category
     const category = detectCategory(video.title, video.description, sourceText);
 
-    // 5. Generate blog post via Claude
+    // 5. Generate blog post via Claude Sonnet (strict anti-hallucination)
     const blogPost = await generateBlogPost(video, sourceText, category);
 
-    // 6. Publish to WordPress
-    const { postId, link } = await publishToWordPress(
+    // 6. Save as DRAFT — verify-blog cron will verify and publish
+    const { postId, link } = await saveDraftToWordPress(
       blogPost.title,
       blogPost.slug,
       blogPost.content,
@@ -425,16 +415,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       video.id,
     );
 
-    console.log(`Blog published: "${blogPost.title}" (post ${postId}) for video ${video.id}`);
+    console.log(`Blog DRAFT saved: "${blogPost.title}" (post ${postId}) for video ${video.id}`);
 
     return NextResponse.json({
       success: true,
       postId,
       postLink: link,
       postTitle: blogPost.title,
+      postStatus: 'draft',
       videoId: video.id,
       videoTitle: video.title,
       category: category.name,
+      nextStep: 'verify-blog cron will verify and publish',
       timestamp: new Date().toISOString(),
     });
   } catch (error: unknown) {

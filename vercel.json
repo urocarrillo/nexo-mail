@@ -14,6 +14,9 @@
     },
     "src/app/api/cron/weekly-blog/route.ts": {
       "maxDuration": 60
+    },
+    "src/app/api/cron/verify-blog/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
@@ -24,6 +27,14 @@
     {
       "path": "/api/cron/weekly-blog",
       "schedule": "0 13 * * 1"
+    },
+    {
+      "path": "/api/cron/verify-blog",
+      "schedule": "30 13 * * 1"
+    },
+    {
+      "path": "/api/cron/verify-blog",
+      "schedule": "0 12 * * 2"
     },
     {
       "path": "/api/cron/weekly-newsletter",

@@ -142,6 +142,16 @@ async function generateBlogPost(
 </div>`
     : '';
 
+  const newsletterForm = `<div style="max-width:540px; margin:32px auto; padding:28px 24px; background:#fafafa; border:1px solid #e0e0e0; border-radius:8px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <h3 style="margin:0 0 8px; font-size:20px; font-weight:700; color:#1a1a1a; line-height:1.3;">Suscribite al blog</h3>
+  <p style="margin:0 0 16px; font-size:15px; color:#555; line-height:1.5;">Recibí contenido sobre salud sexual masculina directo en tu correo.</p>
+  <form id="form-newsletter" onsubmit="return handleNewsletterForm(event)" style="margin:0; padding:0;"><input type="text" name="_hp" style="position:absolute;left:-9999px;" tabindex="-1" autocomplete="off"><input type="email" name="email" placeholder="Tu email" required style="width:100%; box-sizing:border-box; padding:12px 14px; font-size:15px; border:1px solid #d0d0d0; border-radius:6px; margin:0 0 10px 0; outline:none; color:#1a1a1a; background:#fff;"><button type="submit" style="width:100%; padding:13px; font-size:16px; font-weight:600; color:#fff; background:#E67E22; border:none; border-radius:6px; cursor:pointer; margin:0;">Suscribirme</button><p class="form-msg" style="margin:10px 0 0; font-size:13px; text-align:center; color:#555; display:none;"></p></form>
+  <p style="margin:12px 0 0; font-size:12px; color:#999; text-align:center;">Podés darte de baja cuando quieras.</p>
+</div>
+<script>
+function handleNewsletterForm(e){e.preventDefault();var f=e.target,b=f.querySelector('button[type="submit"]'),m=f.querySelector('.form-msg'),em=f.querySelector('input[name="email"]').value.trim(),hp=f.querySelector('input[name="_hp"]').value;b.disabled=true;b.textContent='Enviando...';b.style.opacity='0.7';fetch('https://nexo-mail.vercel.app/api/form/blog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:em,tag:'blog-suscriptor',_hp:hp})}).then(function(r){return r.json()}).then(function(d){if(d.success){m.style.display='block';m.style.color='#2d8659';m.textContent='¡Suscrito! Vas a recibir las notas nuevas del blog.';em='';f.querySelector('input[name="email"]').value='';b.textContent='✓ Enviado';b.style.background='#2d8659'}else{m.style.display='block';m.style.color='#c0392b';m.textContent=d.error||'Hubo un error. Intentá de nuevo.';b.disabled=false;b.textContent='Reintentar';b.style.opacity='1'}}).catch(function(){m.style.display='block';m.style.color='#c0392b';m.textContent='Error de conexión. Intentá de nuevo.';b.disabled=false;b.textContent='Reintentar';b.style.opacity='1'});return false}
+</script>`;
+
   const prompt = `Sos un redactor médico SEO que escribe para el Urólogo Mauro Carrillo (urologia.ar). Generá un artículo de blog a partir de este video de YouTube.
 
 VIDEO: "${video.title}"
@@ -179,6 +189,9 @@ ${ctaBlock}
 ${playlistBlock ? `- CTA SECUNDARIO (copiar exacto después de las FAQ):\n${playlistBlock}` : ''}
 
 - CIERRE: Párrafo final con resumen + CTA sutil.
+
+- FORMULARIO NEWSLETTER (copiar exacto antes de la firma):
+${newsletterForm}
 
 - FIRMA (copiar exacto):
 <div style="padding:20px 0; border-top:1px solid #e0e0e0; margin-top:20px; display:flex; align-items:center; justify-content:space-between;">

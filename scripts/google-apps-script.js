@@ -27,6 +27,11 @@ const API_KEY = 'nexo-secret-2024-urocarrillo';
 const EMAIL_COLUMN = 2;  // Column B = Email
 const NAME_COLUMN = 1;   // Column A = Name
 const STATUS_COLUMN = 5; // Column E = Status
+const TAG_MAP = {        // Sheet name → Nexo-mail tag
+  'DE': 'lead-magnet-5h',
+  'EP': 'lead-magnet-ep',
+  'General': 'general'
+};
 // ===========================================
 
 /**
@@ -85,7 +90,7 @@ function processRow(sheet, row) {
     email: email.toString().trim().toLowerCase(),
     name: name ? name.toString().trim() : undefined,
     source: 'instagram',
-    tag: 'general'
+    tag: TAG_MAP[sheet.getName()] || 'general'
   };
 
   // Remove undefined

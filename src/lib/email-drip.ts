@@ -105,13 +105,7 @@ export async function startDripSequence(
     return { started: false, emailsSent: 0, emailsScheduled: 0 };
   }
 
-  // Check if this email already has a drip for this tag (avoid duplicates)
-  const existingKey = `${email}:${tag}`;
-  const existing = await kv.hget<string>(DRIP_SENT_KEY, existingKey);
-  if (existing) {
-    console.log(`Drip already started for ${email} / ${tag}, skipping`);
-    return { started: false, emailsSent: 0, emailsScheduled: 0 };
-  }
+  // Always send - no deduplication (user may re-request the guide)
 
   const now = new Date();
   let emailsSent = 0;
@@ -162,12 +156,8 @@ export async function startDripSequence(
     }
   }
 
-  // Mark as started to prevent duplicates
-  try {
-    await kv.hset(DRIP_SENT_KEY, { [existingKey]: now.toISOString() });
-  } catch (err) {
-    console.error('Drip mark-started error:', err);
-  }
+  // Log drip start
+  console.log(`Drip sequence completed for ${email} / ${tag}: ${emailsSent} sent, ${emailsScheduled} scheduled`);
 
   return { started: true, emailsSent, emailsScheduled };
 }

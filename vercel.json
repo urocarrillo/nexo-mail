@@ -13,7 +13,7 @@
       "maxDuration": 30
     },
     "src/app/api/cron/weekly-blog/route.ts": {
-      "maxDuration": 60
+      "maxDuration": 30
     },
     "src/app/api/cron/verify-blog/route.ts": {
       "maxDuration": 60
@@ -31,6 +31,10 @@
     {
       "path": "/api/cron/verify-blog",
       "schedule": "30 13 * * 1"
+    },
+    {
+      "path": "/api/cron/weekly-blog",
+      "schedule": "0 11 * * 2"
     },
     {
       "path": "/api/cron/verify-blog",

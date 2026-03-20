@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { addContactToBrevo } from '@/lib/brevo';
 import { saveLead, updateLeadStatus, getLeadByEmail } from '@/lib/storage';
+import { startDripSequence } from '@/lib/email-drip';
 import { WebhookPayload, WebhookResponse, LeadTag } from '@/lib/types';
 
 const VALID_TAGS: LeadTag[] = ['general', 'programa-de', 'eyaculacion-precoz', 'youtube', 'lead-magnet-5h', 'lead-magnet-ep', 'lead-magnet-preservativo', 'waitlist-programa', 'blog-suscriptor'];
@@ -113,6 +114,13 @@ export async function POST(request: NextRequest): Promise<NextResponse<WebhookRe
       await updateLeadStatus(lead.id, 'subscribed', {
         brevoContactId: brevoResult.contactId,
       });
+
+      // Start drip sequence if one exists for this tag
+      try {
+        await startDripSequence(email, tag || 'general', name);
+      } catch (dripError) {
+        console.error('Drip sequence error (non-blocking):', dripError);
+      }
 
       return NextResponse.json({
         success: true,

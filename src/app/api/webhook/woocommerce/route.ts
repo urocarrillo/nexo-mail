@@ -3,6 +3,9 @@ import crypto from 'crypto';
 import { markAsPurchased } from '@/lib/brevo';
 import { markLeadAsPurchased } from '@/lib/storage';
 import { WooCommerceOrder, WebhookResponse } from '@/lib/types';
+import { getAffiliate, logSale } from '@/lib/sheets-affiliates';
+import { sendAffiliateSaleNotification } from '@/lib/email-affiliate';
+import { kv } from '@vercel/kv';
 
 function verifyWooCommerceSignature(
   payload: string,
@@ -61,6 +64,7 @@ function parseOrder(data: unknown): WooCommerceOrder | null {
       phone: billing.phone as string | undefined,
     },
     line_items: (order.line_items as WooCommerceOrder['line_items']) || [],
+    meta_data: (order.meta_data as WooCommerceOrder['meta_data']) || [],
     total: (order.total as string) || '0',
     currency: (order.currency as string) || 'USD',
     date_created: (order.date_created as string) || new Date().toISOString(),
@@ -144,10 +148,53 @@ export async function POST(request: NextRequest): Promise<NextResponse<WebhookRe
     // Update lead status in storage
     await markLeadAsPurchased(email, orderId);
 
+    // Check for affiliate referrer (order meta from WP hook, OR KV from checkout JS pixel)
+    const referrerMeta = order.meta_data.find((m) => m.key === '_referrer');
+    let refCode = referrerMeta?.value || '';
+    if (!refCode) {
+      try {
+        const kvRef = await kv.get<string>(`affiliate-ref:${email}`);
+        if (kvRef) {
+          refCode = kvRef;
+          await kv.del(`affiliate-ref:${email}`);
+        }
+      } catch { /* KV lookup failed, continue without */ }
+    }
+    if (refCode) {
+      try {
+        const affiliate = await getAffiliate(refCode);
+        if (affiliate) {
+          const total = parseFloat(order.total) || 0;
+          const commission = total * (affiliate.comision_pct / 100);
+
+          await logSale({
+            pedido: orderId,
+            monto: total,
+            codigo: affiliate.codigo,
+            nombre: affiliate.nombre,
+            comision: commission,
+          });
+
+          await sendAffiliateSaleNotification({
+            orderId,
+            total: order.total,
+            currency: order.currency,
+            affiliateCode: affiliate.codigo,
+            affiliateName: affiliate.nombre,
+            commission,
+          });
+
+          console.log(`Affiliate sale logged: ${affiliate.codigo} → $${commission.toFixed(2)}`);
+        }
+      } catch (affErr) {
+        console.error('Affiliate tracking error (non-blocking):', affErr);
+      }
+    }
+
     if (brevoResult.success) {
       return NextResponse.json({
         success: true,
-        message: `Order ${orderId} processed - ${email} marked as purchased`,
+        message: `Order ${orderId} processed - ${email} marked as purchased${refCode ? ` (referrer: ${refCode})` : ''}`,
       });
     } else {
       console.warn(`Brevo update failed for ${email}:`, brevoResult.error);

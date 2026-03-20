@@ -45,6 +45,10 @@ export interface WooCommerceOrder {
     name: string;
     quantity: number;
   }>;
+  meta_data: Array<{
+    key: string;
+    value: string;
+  }>;
   total: string;
   currency: string;
   date_created: string;

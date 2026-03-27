@@ -78,7 +78,7 @@ async function sendPostConsultationEmail(params: {
 
 function validateRequest(request: NextRequest, body: string): boolean {
   // Layer 1: URL token (required) — Calendly stores the full URL including ?token=xxx
-  const token = new URL(request.url).searchParams.get('token');
+  const token = request.nextUrl.searchParams.get('token');
   const expectedToken = process.env.CALENDLY_WEBHOOK_TOKEN;
 
   if (!expectedToken) {

@@ -17,6 +17,12 @@
     },
     "src/app/api/cron/verify-blog/route.ts": {
       "maxDuration": 60
+    },
+    "src/app/api/cron/process-calendly/route.ts": {
+      "maxDuration": 30
+    },
+    "src/app/api/cron/cleanup-coupons/route.ts": {
+      "maxDuration": 30
     }
   },
   "crons": [
@@ -43,6 +49,14 @@
     {
       "path": "/api/cron/weekly-newsletter",
       "schedule": "0 13 * * 2"
+    },
+    {
+      "path": "/api/cron/process-calendly",
+      "schedule": "30 */2 * * *"
+    },
+    {
+      "path": "/api/cron/cleanup-coupons",
+      "schedule": "0 6 * * *"
     }
   ]
 }

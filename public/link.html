@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Gu&iacute;a gratuita — Ur&oacute;logo Mauro Carrillo</title>
+<meta name="description" content="Descarg&aacute; la gu&iacute;a gratuita: C&oacute;mo usar un preservativo correctamente.">
+<meta name="robots" content="noindex">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:Arial,Helvetica,sans-serif;background:#152735;color:#313131;min-height:100vh;display:flex;align-items:center;justify-content:center;-webkit-font-smoothing:antialiased}
+.card{background:#fff;max-width:380px;width:100%;margin:16px;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.15)}
+.top{background:#152735;padding:12px 24px 0;text-align:center}
+.photo{width:100px;height:100px;border-radius:50%;border:3px solid #5ac8fa;object-fit:cover;display:block;margin:0 auto 14px}
+.top h1{color:#fff;font-size:20px;font-weight:500;margin:0 0 4px}
+.sub{color:rgba(255,255,255,0.55);font-size:14px;margin:0}
+.accent{height:3px;margin:20px 0 0;background:linear-gradient(90deg,#5ac8fa,#48c9b0)}
+.body{padding:22px 24px 26px}
+.hook{font-size:16px;color:#152735;font-weight:600;margin:0 0 10px;text-align:center}
+.desc{font-size:14px;color:#555;margin:0 0 14px;line-height:1.5;text-align:center}
+.bullets{list-style:none;padding:0;margin:0 0 18px}
+.bullets li{font-size:13px;color:#555;line-height:1.5;padding:3px 0 3px 20px;position:relative}
+.bullets li::before{content:"\2713";color:#48c9b0;font-weight:bold;position:absolute;left:0;top:3px}
+form{display:flex;flex-direction:column;gap:10px;align-items:center}
+input[type="email"],input[type="text"]{width:100%;padding:12px 14px;font-size:15px;font-family:Arial,Helvetica,sans-serif;border:2px solid #e0e0e0;border-radius:8px;outline:none;transition:border-color .2s;color:#313131}
+input:focus{border-color:#5ac8fa}
+input::placeholder{color:#999}
+.hp{position:absolute;left:-9999px}
+button{width:100%;padding:14px 20px;font-size:15px;font-weight:bold;font-family:Arial,Helvetica,sans-serif;color:#fff;background:#E67E22;border:none;border-radius:30px;cursor:pointer;transition:opacity .2s,transform .1s;letter-spacing:.3px}
+button:hover{opacity:.92}
+button:active{transform:scale(.98)}
+.msg{font-size:14px;margin-top:6px;display:none;text-align:center}
+.disclaimer{font-size:11px;color:#999;margin-top:4px;text-align:center}
+@media(max-width:400px){.card{margin:10px}.top{padding:10px 20px 0}.photo{width:80px;height:80px}.top h1{font-size:18px}.body{padding:18px 20px 22px}.hook{font-size:15px}.bullets li{font-size:12px}button{font-size:14px;padding:13px 18px}}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="top">
+    <img src="https://urologia.ar/wp-content/uploads/2025/03/LUV5071-300x300.jpg" alt="Mauro Carrillo" class="photo" width="100" height="100" loading="eager">
+    <h1>Mauro Carrillo</h1>
+    <p class="sub">Tu ur&oacute;logo amigo</p>
+    <div class="accent"></div>
+  </div>
+  <div class="body">
+    <p class="hook">C&oacute;mo usar un preservativo correctamente</p>
+    <p class="desc">Lo que nadie te ense&ntilde;&oacute;. Descarg&aacute; la gu&iacute;a gratuita:</p>
+    <ul class="bullets">
+      <li>Los 5 errores m&aacute;s comunes</li>
+      <li>Paso a paso: antes, durante y despu&eacute;s</li>
+      <li>C&oacute;mo elegir tu talla correcta</li>
+      <li>Mitos vs realidad</li>
+    </ul>
+    <form id="f" onsubmit="return send(event)">
+      <input type="text" name="_hp" class="hp" tabindex="-1" autocomplete="off">
+      <input type="email" name="email" placeholder="Tu email" required autocomplete="email">
+      <input type="text" name="name" placeholder="Tu nombre (opcional)">
+      <button type="submit">QUIERO LA GU&Iacute;A GRATIS</button>
+      <p class="msg" id="msg"></p>
+    </form>
+    <p class="disclaimer">Pod&eacute;s darte de baja cuando quieras.</p>
+  </div>
+</div>
+<script>
+function send(e){
+  e.preventDefault();
+  var f=e.target,b=f.querySelector('button'),m=document.getElementById('msg'),
+      em=f.querySelector('[name=email]').value.trim(),
+      nm=f.querySelector('[name=name]').value.trim(),
+      hp=f.querySelector('[name=_hp]').value;
+  b.disabled=true;b.textContent='Enviando...';b.style.opacity='.7';
+  fetch('https://nexo-mail.vercel.app/api/form/blog',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({email:em,name:nm,tag:'lead-magnet-preservativo',_hp:hp})
+  }).then(function(r){return r.json()}).then(function(d){
+    if(d.success){
+      m.style.display='block';m.style.color='#2d8659';
+      m.textContent='\u00a1Listo! Revis\u00e1 tu correo.';
+      f.querySelector('[name=email]').value='';
+      f.querySelector('[name=name]').value='';
+      b.textContent='\u2713 Enviado';b.style.background='#2d8659';
+      setTimeout(function(){window.open('https://urologia.ar/wp-content/uploads/2026/03/guia_preservativo.pdf','_blank')},800);
+    }else{err()}
+  }).catch(err);
+  function err(){m.style.display='block';m.style.color='#c0392b';m.textContent='Error. Intent\u00e1 de nuevo.';b.disabled=false;b.textContent='Reintentar';b.style.opacity='1'}
+  return false;
+}
+</script>
+</body>
+</html>

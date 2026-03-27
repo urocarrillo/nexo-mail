@@ -37,11 +37,11 @@ const SEQUENCES: Partial<Record<LeadTag, DripSequence>> = {
   },
   'lead-magnet-5h': {
     steps: [
-      { templateId: 82, delayDays: 0, subject: '5H Email 1: Entrega PDF' },
-      { templateId: 122, delayDays: 2, subject: '5H Email 2: Historia personal' },
-      { templateId: 123, delayDays: 4, subject: '5H Email 3: Ciclo ansiedad' },
-      { templateId: 124, delayDays: 6, subject: '5H Email 4: El programa' },
-      { templateId: 125, delayDays: 8, subject: '5H Email 5: Cierre empático' },
+      { templateId: 157, delayDays: 0, subject: '5H Email 1: Entrega PDF' },
+      { templateId: 153, delayDays: 2, subject: '5H Email 2: Historia personal' },
+      { templateId: 154, delayDays: 4, subject: '5H Email 3: Ciclo ansiedad' },
+      { templateId: 155, delayDays: 6, subject: '5H Email 4: El programa' },
+      { templateId: 156, delayDays: 8, subject: '5H Email 5: Cierre + waitlist' },
     ],
   },
   // general: no drip sequence

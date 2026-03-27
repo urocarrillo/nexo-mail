@@ -76,33 +76,43 @@ async function sendPostConsultationEmail(params: {
 
 // ─── Validation ─────────────────────────────────────────────────────
 
-function validateCalendlySignature(
-  request: NextRequest,
-  body: string
-): boolean {
-  const secret = process.env.CALENDLY_WEBHOOK_SECRET;
-  if (!secret) {
-    console.warn('CALENDLY_WEBHOOK_SECRET not set — skipping signature validation');
-    return true;
+function validateRequest(request: NextRequest, body: string): boolean {
+  // Layer 1: URL token (required) — Calendly stores the full URL including ?token=xxx
+  const token = new URL(request.url).searchParams.get('token');
+  const expectedToken = process.env.CALENDLY_WEBHOOK_TOKEN;
+
+  if (!expectedToken) {
+    console.error('CALENDLY_WEBHOOK_TOKEN not set — rejecting all requests');
+    return false;
   }
 
-  const signature = request.headers.get('calendly-webhook-signature');
-  if (!signature) return false;
+  if (token !== expectedToken) {
+    console.error('Invalid webhook token');
+    return false;
+  }
 
-  // Calendly v2 signature format: t=timestamp,v1=signature
-  const parts = signature.split(',');
-  const timestamp = parts.find(p => p.startsWith('t='))?.slice(2);
-  const v1 = parts.find(p => p.startsWith('v1='))?.slice(3);
+  // Layer 2: Calendly signature (optional, if signing key is configured)
+  const secret = process.env.CALENDLY_WEBHOOK_SECRET;
+  if (secret) {
+    const signature = request.headers.get('calendly-webhook-signature');
+    if (!signature) return false;
 
-  if (!timestamp || !v1) return false;
+    const parts = signature.split(',');
+    const timestamp = parts.find(p => p.startsWith('t='))?.slice(2);
+    const v1 = parts.find(p => p.startsWith('v1='))?.slice(3);
 
-  const data = `${timestamp}.${body}`;
-  const expected = crypto
-    .createHmac('sha256', secret)
-    .update(data, 'utf8')
-    .digest('hex');
+    if (!timestamp || !v1) return false;
 
-  return v1 === expected;
+    const data = `${timestamp}.${body}`;
+    const expected = crypto
+      .createHmac('sha256', secret)
+      .update(data, 'utf8')
+      .digest('hex');
+
+    return v1 === expected;
+  }
+
+  return true; // token valid, no signing key configured
 }
 
 function isAllowedEvent(payload: CalendlyWebhookPayload): boolean {
@@ -137,11 +147,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Validate Calendly signature
-  if (!validateCalendlySignature(request, rawBody)) {
-    console.error('Invalid Calendly webhook signature');
+  // Validate request (URL token + optional Calendly signature)
+  if (!validateRequest(request, rawBody)) {
+    console.error('Unauthorized Calendly webhook request');
     return NextResponse.json(
-      { success: false, error: 'Invalid signature' },
+      { success: false, error: 'Unauthorized' },
       { status: 401 }
     );
   }

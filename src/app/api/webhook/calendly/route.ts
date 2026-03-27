@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { kv } from '@vercel/kv';
+import * as Brevo from '@getbrevo/brevo';
 import { createPatientCoupon } from '@/lib/woocommerce-coupons';
 
 // ─── Calendly webhook types ────────────────────────────────────────
@@ -10,12 +10,6 @@ interface CalendlyEvent {
   name: string;
   start_time: string;
   end_time: string;
-}
-
-interface CalendlyInvitee {
-  uri: string;
-  name: string;
-  email: string;
 }
 
 interface CalendlyWebhookPayload {
@@ -36,11 +30,8 @@ interface CalendlyWebhookPayload {
 const ALLOWED_EVENT_NAMES = ['Atención Prioritaria'];
 const POST_CONSULTATION_DELAY_MS = 60 * 60 * 1000; // 1 hour after event ends
 const BREVO_TEMPLATE_ID = parseInt(process.env.CALENDLY_EMAIL_TEMPLATE_ID || '0');
-const SCHEDULED_EMAILS_KEY = 'calendly:scheduled';
 
 // ─── Brevo transactional send ───────────────────────────────────────
-
-import * as Brevo from '@getbrevo/brevo';
 
 const transacApi = new Brevo.TransactionalEmailsApi();
 transacApi.setApiKey(
@@ -53,20 +44,25 @@ async function sendPostConsultationEmail(params: {
   name: string;
   couponCode: string;
   templateId: number;
+  scheduledAt?: string; // ISO datetime — Brevo sends at this time
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
-  const { email, name, couponCode, templateId } = params;
+  const { email, name, couponCode, templateId, scheduledAt } = params;
 
   try {
     const sendEmail = new Brevo.SendSmtpEmail();
     sendEmail.templateId = templateId;
     sendEmail.to = [{ email, name }];
     sendEmail.params = {
-      NOMBRE: name.split(' ')[0], // first name only
+      NOMBRE: name.split(' ')[0],
       COUPON_CODE: couponCode,
     };
+    if (scheduledAt) {
+      sendEmail.scheduledAt = scheduledAt as unknown as Date;
+    }
 
     const result = await transacApi.sendTransacEmail(sendEmail);
-    console.log(`Post-consultation email sent to ${email} (coupon: ${couponCode})`);
+    const action = scheduledAt ? `scheduled for ${scheduledAt}` : 'sent immediately';
+    console.log(`Post-consultation email ${action} to ${email} (coupon: ${couponCode})`);
     return { success: true, messageId: result.body?.messageId };
   } catch (error: unknown) {
     const apiError = error as { response?: { body?: { message?: string } }; message?: string };
@@ -76,23 +72,6 @@ async function sendPostConsultationEmail(params: {
       error: apiError.response?.body?.message || apiError.message || 'Unknown error',
     };
   }
-}
-
-// ─── Scheduled email entry ──────────────────────────────────────────
-
-interface ScheduledConsultationEmail {
-  id: string;
-  email: string;
-  name: string;
-  couponCode: string;
-  templateId: number;
-  eventName: string;
-  eventEndTime: string;
-  sendAt: string; // ISO date — event end + 1 hour
-  status: 'pending' | 'sent' | 'failed' | 'canceled';
-  createdAt: string;
-  sentAt?: string;
-  error?: string;
 }
 
 // ─── Validation ─────────────────────────────────────────────────────
@@ -127,7 +106,6 @@ function validateCalendlySignature(
 }
 
 function isAllowedEvent(payload: CalendlyWebhookPayload): boolean {
-  // Check event type name
   const eventName = payload.payload.event_type?.name
     || payload.payload.scheduled_event?.name
     || '';
@@ -146,7 +124,6 @@ export async function GET(): Promise<NextResponse> {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  // Parse body (need raw text for signature validation)
   let rawBody: string;
   let body: CalendlyWebhookPayload;
 
@@ -202,7 +179,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    // 1. Create WooCommerce coupon
+    // 1. Create WooCommerce coupon (30%, 24hr, single use)
     const couponResult = await createPatientCoupon({
       patientName: name || 'Paciente',
       patientEmail: email,
@@ -216,39 +193,34 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // 2. Calculate send time: event end + 1 hour
+    // 2. Schedule email via Brevo's scheduledAt — 1 hour after consultation ends
+    //    Brevo handles the delay server-side, no cron needed.
     const endTime = new Date(eventEndTime);
     const sendAt = new Date(endTime.getTime() + POST_CONSULTATION_DELAY_MS);
 
-    // 3. Schedule email in KV (will be sent by /api/cron/send-emails-calendly)
-    const templateId = BREVO_TEMPLATE_ID;
-    const scheduledEmail: ScheduledConsultationEmail = {
-      id: `cal_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+    const emailResult = await sendPostConsultationEmail({
       email,
       name: name || 'Paciente',
       couponCode: couponResult.code,
-      templateId,
-      eventName: body.payload.scheduled_event?.name || 'Atención Prioritaria',
-      eventEndTime,
-      sendAt: sendAt.toISOString(),
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-    };
-
-    await kv.hset(SCHEDULED_EMAILS_KEY, {
-      [scheduledEmail.id]: JSON.stringify(scheduledEmail),
+      templateId: BREVO_TEMPLATE_ID,
+      scheduledAt: sendAt.toISOString(),
     });
 
+    if (!emailResult.success) {
+      // Coupon was created but email failed — log but don't fail the webhook
+      console.error(`Email scheduling failed for ${email}: ${emailResult.error}. Coupon ${couponResult.code} was created.`);
+    }
+
     console.log(
-      `Scheduled post-consultation email: ${email} | coupon: ${couponResult.code} | send at: ${sendAt.toISOString()}`
+      `Post-consultation flow complete: ${email} | coupon: ${couponResult.code} | email scheduled: ${sendAt.toISOString()}`
     );
 
     return NextResponse.json({
       success: true,
-      message: 'Coupon created and email scheduled',
+      message: 'Coupon created and email scheduled via Brevo',
       couponCode: couponResult.code,
       sendAt: sendAt.toISOString(),
-      scheduledEmailId: scheduledEmail.id,
+      emailScheduled: emailResult.success,
     });
   } catch (error) {
     console.error('Calendly webhook error:', error);
@@ -260,63 +232,4 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { status: 500 }
     );
   }
-}
-
-// ─── Process scheduled consultation emails (called by cron) ─────────
-
-export async function processScheduledConsultationEmails(): Promise<{
-  processed: number;
-  sent: number;
-  failed: number;
-  remaining: number;
-}> {
-  const now = new Date();
-  const allEntries = await kv.hgetall<Record<string, string>>(SCHEDULED_EMAILS_KEY);
-
-  if (!allEntries) {
-    return { processed: 0, sent: 0, failed: 0, remaining: 0 };
-  }
-
-  let processed = 0;
-  let sent = 0;
-  let failed = 0;
-  let remaining = 0;
-
-  for (const [id, json] of Object.entries(allEntries)) {
-    const entry: ScheduledConsultationEmail =
-      typeof json === 'string' ? JSON.parse(json) : json;
-
-    if (entry.status !== 'pending') continue;
-
-    const sendAt = new Date(entry.sendAt);
-    if (sendAt > now) {
-      remaining++;
-      continue;
-    }
-
-    // Time to send
-    processed++;
-    const result = await sendPostConsultationEmail({
-      email: entry.email,
-      name: entry.name,
-      couponCode: entry.couponCode,
-      templateId: entry.templateId,
-    });
-
-    if (result.success) {
-      sent++;
-      entry.status = 'sent';
-      entry.sentAt = now.toISOString();
-      console.log(`Post-consultation email sent: ${entry.email} (${entry.couponCode})`);
-    } else {
-      failed++;
-      entry.status = 'failed';
-      entry.error = result.error;
-      console.error(`Post-consultation email failed: ${entry.email}: ${result.error}`);
-    }
-
-    await kv.hset(SCHEDULED_EMAILS_KEY, { [id]: JSON.stringify(entry) });
-  }
-
-  return { processed, sent, failed, remaining };
 }

@@ -16,6 +16,7 @@ const BLOG_VALID_TAGS: LeadTag[] = [
 const ALLOWED_ORIGINS = [
   'https://urologia.ar',
   'https://www.urologia.ar',
+  'https://link.urologia.ar',
 ];
 
 function corsHeaders(origin: string | null) {

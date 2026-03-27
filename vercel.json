@@ -4,7 +4,7 @@
   "regions": ["iad1"],
   "rewrites": [
     { "source": "/link", "destination": "/link.html" },
-    { "source": "/", "has": [{ "type": "host", "value": "link.urologia.ar" }], "destination": "/link.html" }
+    { "source": "/", "has": [{ "type": "host", "value": "link.urologia.ar" }], "destination": "/link" }
   ],
   "functions": {
     "src/app/api/**/*.ts": {

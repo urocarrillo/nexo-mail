@@ -57,7 +57,7 @@ async function sendPostConsultationEmail(params: {
       COUPON_CODE: couponCode,
     };
     if (scheduledAt) {
-      sendEmail.scheduledAt = scheduledAt as unknown as Date;
+      sendEmail.scheduledAt = new Date(scheduledAt);
     }
 
     const result = await transacApi.sendTransacEmail(sendEmail);

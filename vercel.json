@@ -3,7 +3,8 @@
   "framework": "nextjs",
   "regions": ["iad1"],
   "rewrites": [
-    { "source": "/link", "destination": "/link.html" }
+    { "source": "/link", "destination": "/link.html" },
+    { "source": "/", "has": [{ "type": "host", "value": "link.urologia.ar" }], "destination": "/link.html" }
   ],
   "functions": {
     "src/app/api/**/*.ts": {

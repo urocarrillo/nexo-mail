@@ -85,13 +85,19 @@ function buildReminderHtml(
     ${postsList}
   </ul>
 
-  <!-- Checklist -->
-  <h2 style="margin:0 0 12px; font-size:18px; color:#152735; border-bottom:2px solid #5ac8fa; padding-bottom:8px;">Checklist semanal</h2>
-  <ul style="padding-left:20px; margin:0 0 24px; list-style:none;">
-    <li style="margin-bottom:8px; font-size:15px; color:#313131;">&#9744; Publicar post de video de YouTube de la semana</li>
-    <li style="margin-bottom:8px; font-size:15px; color:#313131;">&#9744; Publicar 1 post de know-how o caso clinico</li>
-    <li style="margin-bottom:8px; font-size:15px; color:#313131;">&#9744; Revisar metricas de posts anteriores</li>
-    <li style="margin-bottom:8px; font-size:15px; color:#313131;">&#9744; Interactuar con comentarios y conexiones</li>
+  <!-- Automatico -->
+  <h2 style="margin:0 0 12px; font-size:18px; color:#152735; border-bottom:2px solid #5ac8fa; padding-bottom:8px;">Automatico (revisar en tu email)</h2>
+  <ul style="padding-left:20px; margin:0 0 20px; list-style:none;">
+    <li style="margin-bottom:8px; font-size:15px; color:#313131;">&#9744; <strong>Post del video</strong> — deberia estar en tu email para aprobar. Si no llego, pedile a Claude: <code>/linkedin-video</code></li>
+    <li style="margin-bottom:8px; font-size:15px; color:#313131;">&#9744; <strong>Post extra</strong> — pedile a Claude: <code>/linkedin-extra</code> y te llega otro email para aprobar</li>
+  </ul>
+
+  <!-- Manual (2 min) -->
+  <h2 style="margin:0 0 12px; font-size:18px; color:#152735; border-bottom:2px solid #5ac8fa; padding-bottom:8px;">Manual — 2 minutos</h2>
+  <ul style="padding-left:20px; margin:0 0 20px; list-style:none;">
+    <li style="margin-bottom:12px; font-size:15px; color:#313131;">&#9744; <strong>Newsletter</strong> (1x/mes) — Abri LinkedIn &gt; Escribir articulo &gt; Newsletter &gt; Pega el texto del ultimo blog de <a href="https://urologia.ar/blog/" style="color:#0077B5;">urologia.ar/blog</a></li>
+    <li style="margin-bottom:12px; font-size:15px; color:#313131;">&#9744; <strong>Carousel PDF</strong> (1x/mes) — Abri LinkedIn &gt; Crear post &gt; Documento &gt; Subi el PDF de <code>08-Raptor/carousels/</code></li>
+    <li style="margin-bottom:12px; font-size:15px; color:#313131;">&#9744; <strong>Commenting</strong> (5 min) — Busca 2-3 posts de empresas de salud o healthtech y deja un comentario inteligente</li>
   </ul>
 
 </td></tr>

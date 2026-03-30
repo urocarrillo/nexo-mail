@@ -1,5 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
+import * as Brevo from '@getbrevo/brevo';
 import { publishPost, publishPostWithImage } from '@/lib/linkedin';
+
+const BREVO_API_KEY = process.env.BREVO_API_KEY || '';
+const APPROVAL_EMAIL = 'contacto.urologocarrillo@gmail.com';
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://nexo-mail.vercel.app';
+
+const transacApi = new Brevo.TransactionalEmailsApi();
+transacApi.setApiKey(
+  Brevo.TransactionalEmailsApiApiKeys.apiKey,
+  BREVO_API_KEY
+);
 
 function validateApiKey(request: NextRequest): boolean {
   const apiKey = request.headers.get('x-api-key');
@@ -12,6 +23,7 @@ interface PostRequestBody {
   scheduledFor?: string;
   imageUrl?: string;
   firstComment?: string;
+  skipApproval?: boolean;
 }
 
 function validatePayload(data: unknown): { valid: boolean; error?: string; payload?: PostRequestBody } {
@@ -29,32 +41,75 @@ function validatePayload(data: unknown): { valid: boolean; error?: string; paylo
     return { valid: false, error: 'content cannot be empty' };
   }
 
-  if (body.scheduledFor && typeof body.scheduledFor !== 'string') {
-    return { valid: false, error: 'scheduledFor must be an ISO date string' };
-  }
-
-  if (body.imageUrl && typeof body.imageUrl !== 'string') {
-    return { valid: false, error: 'imageUrl must be a string' };
-  }
-
-  if (body.firstComment && typeof body.firstComment !== 'string') {
-    return { valid: false, error: 'firstComment must be a string' };
-  }
-
   return {
     valid: true,
     payload: {
       content: body.content.trim(),
-      publishNow: body.publishNow !== false && !body.scheduledFor,
+      publishNow: !!body.publishNow,
       scheduledFor: body.scheduledFor as string | undefined,
       imageUrl: body.imageUrl as string | undefined,
       firstComment: body.firstComment as string | undefined,
+      skipApproval: !!body.skipApproval,
     },
   };
 }
 
+function buildApprovalEmail(content: string, postId: string, firstComment?: string): string {
+  const approveUrl = `${BASE_URL}/api/linkedin/approve?postId=${postId}&token=${process.env.API_SECRET_KEY}`;
+  const previewContent = content.replace(/\n/g, '<br>');
+
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0; padding:0; background:#f4f4f4; font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f4; padding:20px 0;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff; border-radius:8px; overflow:hidden; max-width:600px; width:100%;">
+
+<!-- Header -->
+<tr><td style="background:#0077B5; padding:24px 30px; text-align:center;">
+  <p style="margin:0; font-size:11px; letter-spacing:2px; color:#ffffff; opacity:0.8; text-transform:uppercase;">LinkedIn Post</p>
+  <h1 style="margin:8px 0 0; font-size:20px; color:#ffffff; font-weight:700;">Nuevo post para aprobar</h1>
+</td></tr>
+
+<!-- Body -->
+<tr><td style="padding:30px;">
+
+  <!-- Preview -->
+  <div style="background:#f8f9fa; border-radius:8px; padding:20px; margin-bottom:24px; border-left:4px solid #0077B5;">
+    <p style="margin:0; font-size:15px; color:#313131; line-height:1.6;">${previewContent}</p>
+  </div>
+
+  ${firstComment ? `
+  <div style="background:#fff8f0; border-radius:8px; padding:16px; margin-bottom:24px; border-left:4px solid #E67E22;">
+    <p style="margin:0 0 4px; font-size:12px; color:#666666; text-transform:uppercase; letter-spacing:1px;">Primer comentario:</p>
+    <p style="margin:0; font-size:14px; color:#313131;">${firstComment}</p>
+  </div>` : ''}
+
+  <p style="margin:0 0 8px; font-size:14px; color:#666666;">Se publicara el proximo martes, miercoles o jueves a las 9:00 AM Argentina.</p>
+
+  <!-- Approve button -->
+  <div style="text-align:center; margin:24px 0;">
+    <a href="${approveUrl}" style="display:inline-block; background:#0077B5; color:#ffffff; text-decoration:none; padding:14px 40px; border-radius:30px; font-size:16px; font-weight:700;">Aprobar y programar</a>
+  </div>
+
+  <p style="margin:0; font-size:13px; color:#999999; text-align:center;">Si no queres publicar este post, simplemente ignora este email.</p>
+
+</td></tr>
+
+<!-- Footer -->
+<tr><td style="padding:16px 30px; border-top:1px solid #e0e0e0; text-align:center;">
+  <p style="margin:0; font-size:12px; color:#999999;">Nexo-mail — LinkedIn automation</p>
+</td></tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>`;
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  // Validate API key
   if (!validateApiKey(request)) {
     return NextResponse.json(
       { success: false, error: 'Invalid or missing API key' },
@@ -62,7 +117,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Check Zernio API key is configured
   if (!process.env.ZERNIO_API_KEY) {
     return NextResponse.json(
       { success: false, error: 'ZERNIO_API_KEY not configured' },
@@ -70,7 +124,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Parse and validate payload
   let body: unknown;
   try {
     body = await request.json();
@@ -89,31 +142,61 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const { content, publishNow, scheduledFor, imageUrl, firstComment } = validation.payload;
+  const { content, publishNow, scheduledFor, imageUrl, firstComment, skipApproval } = validation.payload;
 
   try {
-    let result;
+    // If skipApproval or explicit publishNow/scheduledFor, publish/schedule directly
+    if (skipApproval || publishNow || scheduledFor) {
+      let result;
+      const shouldPublishNow = publishNow && !scheduledFor;
 
-    if (imageUrl) {
-      result = await publishPostWithImage(content, imageUrl, publishNow, firstComment);
-    } else {
-      result = await publishPost(content, publishNow, scheduledFor, firstComment);
+      if (imageUrl) {
+        result = await publishPostWithImage(content, imageUrl, shouldPublishNow, firstComment);
+      } else {
+        result = await publishPost(content, shouldPublishNow, scheduledFor, firstComment);
+      }
+
+      if (!result.success) {
+        return NextResponse.json({ success: false, error: result.error }, { status: 502 });
+      }
+
+      const action = shouldPublishNow ? 'published' : 'scheduled';
+      console.log(`LinkedIn post ${action} (skip approval): ${content.slice(0, 80)}...`);
+
+      return NextResponse.json({
+        success: true,
+        action,
+        post: result.data,
+        timestamp: new Date().toISOString(),
+      });
     }
 
-    if (!result.success) {
-      return NextResponse.json(
-        { success: false, error: result.error },
-        { status: 502 }
-      );
+    // DEFAULT: Save as draft + send approval email
+    const draftResult = await publishPost(content, false, undefined, firstComment);
+
+    if (!draftResult.success || !draftResult.data) {
+      return NextResponse.json({ success: false, error: draftResult.error || 'Failed to create draft' }, { status: 502 });
     }
 
-    const action = publishNow ? 'published' : 'scheduled';
-    console.log(`LinkedIn post ${action}: ${content.slice(0, 80)}...`);
+    const postId = draftResult.data.id;
+
+    // Send approval email
+    const html = buildApprovalEmail(content, postId, firstComment);
+    const sendEmail = new Brevo.SendSmtpEmail();
+    sendEmail.sender = { email: 'info@urologia.ar', name: 'LinkedIn Post' };
+    sendEmail.to = [{ email: APPROVAL_EMAIL }];
+    sendEmail.subject = `LinkedIn: "${content.slice(0, 60)}..."`;
+    sendEmail.htmlContent = html;
+
+    await transacApi.sendTransacEmail(sendEmail);
+
+    console.log(`LinkedIn draft created + approval email sent: ${postId}`);
 
     return NextResponse.json({
       success: true,
-      action,
-      post: result.data,
+      action: 'draft_pending_approval',
+      postId,
+      approvalEmailSent: true,
       timestamp: new Date().toISOString(),
     });
   } catch (error: unknown) {

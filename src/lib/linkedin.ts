@@ -6,6 +6,7 @@ const TIMEZONE = 'America/Argentina/Mendoza';
 
 interface ZernioPost {
   id: string;
+  _id?: string;
   content: string;
   status: string;
   platforms: Array<{ platform: string; accountId: string }>;
@@ -94,10 +95,21 @@ export async function publishPost(
       };
     }
 
-    const data = await zernioFetch<ZernioPost>('/posts', {
+    const response = await zernioFetch<{ post: Record<string, unknown>; message?: string }>('/posts', {
       method: 'POST',
       body: JSON.stringify(body),
     });
+
+    const post = response.post;
+    const data: ZernioPost = {
+      id: (post._id || post.id) as string,
+      _id: post._id as string,
+      content: post.content as string,
+      status: post.status as string,
+      platforms: post.platforms as Array<{ platform: string; accountId: string }>,
+      scheduledFor: post.scheduledFor as string | undefined,
+      createdAt: post.createdAt as string,
+    };
 
     return { success: true, data };
   } catch (error: unknown) {

@@ -24,6 +24,12 @@
     },
     "src/app/api/cron/cleanup-coupons/route.ts": {
       "maxDuration": 30
+    },
+    "src/app/api/cron/linkedin-reminder/route.ts": {
+      "maxDuration": 10
+    },
+    "src/app/api/cron/weekly-analytics/route.ts": {
+      "maxDuration": 15
     }
   },
   "crons": [
@@ -54,6 +60,14 @@
     {
       "path": "/api/cron/cleanup-coupons",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/linkedin-reminder",
+      "schedule": "0 13 * * 3"
+    },
+    {
+      "path": "/api/cron/weekly-analytics",
+      "schedule": "0 12 * * 3"
     }
   ]
 }

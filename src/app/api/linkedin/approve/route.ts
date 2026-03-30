@@ -108,9 +108,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const scheduledFor = getNextOptimalSlot();
 
-    // Schedule the draft post via Zernio PATCH
+    // Schedule the draft post via Zernio PUT
     const res = await fetch(`${ZERNIO_BASE_URL}/posts/${postId}`, {
-      method: 'PATCH',
+      method: 'PUT',
       headers: {
         'Authorization': `Bearer ${ZERNIO_API_KEY}`,
         'Content-Type': 'application/json',

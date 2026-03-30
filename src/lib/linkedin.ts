@@ -179,8 +179,8 @@ export async function publishPostWithImage(
  */
 export async function listPosts(): Promise<ZernioListResponse> {
   try {
-    const data = await zernioFetch<ZernioPost[]>('/posts');
-    return { success: true, data };
+    const response = await zernioFetch<{ posts: ZernioPost[]; pagination: unknown }>('/posts');
+    return { success: true, data: response.posts || [] };
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
     console.error('LinkedIn listPosts error:', msg);
@@ -193,10 +193,25 @@ export async function listPosts(): Promise<ZernioListResponse> {
  */
 export async function getAccountHealth(): Promise<ZernioHealthResponse> {
   try {
-    const data = await zernioFetch<ZernioHealthResponse['data']>(
-      `/accounts/${LINKEDIN_ACCOUNT_ID}`
+    const response = await zernioFetch<{ accounts: Array<Record<string, unknown>> }>(
+      '/accounts'
     );
-    return { success: true, data };
+    const account = response.accounts?.find(
+      (a: Record<string, unknown>) => a._id === LINKEDIN_ACCOUNT_ID
+    );
+    if (!account) {
+      return { success: false, error: 'LinkedIn account not found in Zernio' };
+    }
+    return {
+      success: true,
+      data: {
+        platform: 'linkedin',
+        accountId: LINKEDIN_ACCOUNT_ID,
+        status: account.isActive ? 'connected' : 'disconnected',
+        connectedAt: (account.metadata as Record<string, unknown>)?.connectedAt as string | undefined,
+        expiresAt: account.tokenExpiresAt as string | undefined,
+      },
+    };
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
     console.error('LinkedIn getAccountHealth error:', msg);

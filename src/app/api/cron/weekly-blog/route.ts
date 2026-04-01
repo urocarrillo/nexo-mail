@@ -106,6 +106,36 @@ async function alreadyPublishedForVideo(auth: string, videoId: string): Promise<
   );
 }
 
+// ─── Safety net: revert published posts that still have placeholder ──
+async function revertBrokenPublishedPosts(auth: string): Promise<string[]> {
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const res = await fetch(
+    `https://urologia.ar/wp-json/wp/v2/posts?status=publish&tags=${NEWSLETTER_TAG_ID}&after=${sevenDaysAgo}&per_page=10&context=edit`,
+    { headers: { Authorization: `Basic ${auth}` } },
+  );
+  if (!res.ok) return [];
+  const posts = await res.json();
+  const reverted: string[] = [];
+
+  for (const post of posts) {
+    const raw = post.content?.raw || '';
+    if (raw.includes(VIDEO_PLACEHOLDER)) {
+      // This post was published with the placeholder still in it — revert to draft
+      await fetch(`https://urologia.ar/wp-json/wp/v2/posts/${post.id}`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Basic ${auth}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: 'draft' }),
+      });
+      reverted.push(`Post ${post.id}: "${post.title?.raw}" reverted to draft`);
+      console.log(`Safety net: reverted post ${post.id} to draft (had placeholder while published)`);
+    }
+  }
+  return reverted;
+}
+
 // ─── Main Handler ────────────────────────────────────────────
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const authHeader = request.headers.get('authorization');
@@ -125,6 +155,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const auth = Buffer.from(`${WP_USER}:${WP_APP_PASSWORD}`).toString('base64');
 
   try {
+    // 0. Safety net: revert any published posts that still have the placeholder
+    const reverted = await revertBrokenPublishedPosts(auth);
+
     // 1. Get latest YouTube video
     const video = await getLatestVideo();
     if (!video) {
@@ -132,6 +165,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         success: true,
         skipped: true,
         reason: 'Could not fetch YouTube RSS',
+        safetyNet: reverted.length > 0 ? reverted : undefined,
       });
     }
 
@@ -143,6 +177,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         skipped: true,
         reason: 'No new video in the last 3 days',
         lastVideo: { title: video.title, published: video.published },
+        safetyNet: reverted.length > 0 ? reverted : undefined,
       });
     }
 
@@ -152,6 +187,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         success: true,
         skipped: true,
         reason: `Post already published for video ${video.id}`,
+        safetyNet: reverted.length > 0 ? reverted : undefined,
       });
     }
 
@@ -242,6 +278,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       videoTitle: video.title,
       thumbnailUploaded: !!featuredMediaId,
       timestamp: new Date().toISOString(),
+      safetyNet: reverted.length > 0 ? reverted : undefined,
     });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Unknown error';

@@ -240,10 +240,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // Thumbnail upload failed — continue without it
     }
 
-    // 7. Update post: replace content + thumbnail + publish
+    // 7. Update post: replace content + thumbnail + publish + set date to now
     const updateData: Record<string, unknown> = {
       content: updatedContent,
       status: 'publish',
+      date: new Date().toISOString(),
     };
     if (featuredMediaId) {
       updateData.featured_media = featuredMediaId;

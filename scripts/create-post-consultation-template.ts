@@ -61,9 +61,11 @@ const htmlContent = `<!DOCTYPE html>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f8ff;border:1px solid #5ac8fa;border-radius:8px;">
     <tr>
       <td style="padding:24px;text-align:center;">
+        <p style="color:#E67E22;font-size:22px;font-weight:bold;margin:0 0 6px;">30% OFF</p>
         <p style="color:#666666;font-size:13px;text-transform:uppercase;letter-spacing:1px;margin:0 0 12px;">Tu c&oacute;digo exclusivo</p>
         <p style="color:#152735;font-size:28px;font-weight:bold;letter-spacing:2px;margin:0 0 12px;font-family:'Courier New',Courier,monospace;">{{ params.COUPON_CODE }}</p>
-        <p style="color:#999999;font-size:13px;margin:0;">V&aacute;lido por 24 horas &middot; Uso &uacute;nico &middot; Solo para pacientes</p>
+        <p style="color:#999999;font-size:13px;margin:0;">Uso &uacute;nico &middot; Solo para pacientes</p>
+        <p style="color:#E67E22;font-size:16px;font-weight:bold;margin:12px 0 0;letter-spacing:0.5px;">&#9200; V&aacute;lido solo por 24 horas</p>
       </td>
     </tr>
   </table>
@@ -85,14 +87,14 @@ const htmlContent = `<!DOCTYPE html>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-left:4px solid #5ac8fa;border-radius:4px;background-color:#ffffff;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
     <tr>
       <td style="padding:20px 24px;">
-        <p style="color:#152735;font-size:17px;font-weight:bold;margin:0 0 10px;">Eyaculaci&oacute;n Precoz &mdash; Curso completo</p>
+        <p style="color:#152735;font-size:17px;font-weight:bold;margin:0 0 10px;">Control&aacute; tu eyaculaci&oacute;n &mdash; Curso completo</p>
         <p style="color:#313131;font-size:15px;line-height:1.6;margin:0 0 16px;">
           Entend&eacute; por qu&eacute; te pasa y aprend&eacute; t&eacute;cnicas concretas para controlarlo. Ejercicios, h&aacute;bitos y estrategias que funcionan &mdash; a tu ritmo, desde tu casa.
         </p>
         <table role="presentation" cellpadding="0" cellspacing="0">
           <tr>
             <td style="background-color:#E67E22;border-radius:30px;text-align:center;">
-              <a href="https://urologia.ar/cursos/eyaculacion-precoz-el-programa-que-te-devuelve-el-control/?utm_source=email&utm_medium=post-consulta&utm_campaign=cross-sell" target="_blank" style="display:inline-block;padding:14px 36px;color:#ffffff;font-size:15px;font-weight:bold;text-decoration:none;">Quiero acceder &rarr;</a>
+              <a href="https://urologia.ar/cursos/control-eyaculacion-precoz/?utm_source=email&utm_medium=post-consulta&utm_campaign=cross-sell" target="_blank" style="display:inline-block;padding:14px 36px;color:#ffffff;font-size:15px;font-weight:bold;text-decoration:none;">Quiero acceder &rarr;</a>
             </td>
           </tr>
         </table>
@@ -108,7 +110,7 @@ const htmlContent = `<!DOCTYPE html>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-left:4px solid #5ac8fa;border-radius:4px;background-color:#ffffff;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
     <tr>
       <td style="padding:20px 24px;">
-        <p style="color:#152735;font-size:17px;font-weight:bold;margin:0 0 10px;">C&oacute;mo mantener la erecci&oacute;n con preservativo</p>
+        <p style="color:#152735;font-size:17px;font-weight:bold;margin:0 0 10px;">Manten&eacute; la erecci&oacute;n con preservativo &mdash; Curso completo</p>
         <p style="color:#313131;font-size:15px;line-height:1.6;margin:0 0 16px;">
           &iquest;Se te baja cuando te pon&eacute;s el preservativo? 8 m&oacute;dulos para transformar la ansiedad del momento en confianza. T&eacute;cnicas de anclaje sensorial, respiraci&oacute;n y entrenamiento p&eacute;lvico.
         </p>
@@ -130,7 +132,7 @@ const htmlContent = `<!DOCTYPE html>
 <td style="padding:0 30px 30px;">
   <p style="color:#313131;font-size:16px;line-height:1.6;margin:0;">
     Gracias de nuevo por confiar en m&iacute;.<br>
-    Tu c&oacute;digo vence en 24 horas.
+    Record&aacute;: <strong style="color:#E67E22;">tu c&oacute;digo vence en 24 horas.</strong>
   </p>
 </td>
 </tr>

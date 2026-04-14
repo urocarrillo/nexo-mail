@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
+import * as Brevo from '@getbrevo/brevo';
 
 export const maxDuration = 30;
 
 const YOUTUBE_CHANNEL_ID = 'UC61wZRxQWvgNZX9Lf0rZ9WQ';
 const WP_USER = 'REDACTED_USER';
 const WP_APP_PASSWORD = process.env.WP_APP_PASSWORD || '';
+const BREVO_API_KEY = process.env.BREVO_API_KEY || '';
 const NEWSLETTER_TAG_ID = 125;
 const VIDEO_PLACEHOLDER = '{{YOUTUBE_EMBED}}';
+const ALERT_EMAIL = 'REDACTED_EMAIL@example.com';
 
 interface YouTubeVideo {
   id: string;
@@ -136,6 +139,46 @@ async function revertBrokenPublishedPosts(auth: string): Promise<string[]> {
   return reverted;
 }
 
+// ─── Alert: no draft found for new video ─────────────────────
+async function sendNoDraftAlert(videoTitle: string, videoId: string): Promise<void> {
+  if (!BREVO_API_KEY) return;
+  const transacApi = new Brevo.TransactionalEmailsApi();
+  transacApi.setApiKey(Brevo.TransactionalEmailsApiApiKeys.apiKey, BREVO_API_KEY);
+
+  const email = new Brevo.SendSmtpEmail();
+  email.sender = { name: 'Nexo-mail', email: 'info@urologia.ar' };
+  email.to = [{ email: ALERT_EMAIL }];
+  email.subject = `⚠️ Blog: no hay draft para "${videoTitle}"`;
+  email.htmlContent = `
+    <div style="font-family:Arial,sans-serif; max-width:560px; margin:0 auto; padding:24px;">
+      <h2 style="color:#152735; margin-bottom:16px;">No se encontró draft de blog</h2>
+      <p style="color:#313131; font-size:15px; line-height:1.6;">
+        El cron <strong>weekly-blog</strong> detectó un video nuevo en YouTube pero no encontró ningún draft en WordPress con el placeholder <code>{{YOUTUBE_EMBED}}</code>.
+      </p>
+      <table style="width:100%; border-collapse:collapse; margin:20px 0;">
+        <tr style="background:#f8f9fa;">
+          <td style="padding:10px; font-weight:bold; color:#666;">Video</td>
+          <td style="padding:10px; color:#313131;">${videoTitle}</td>
+        </tr>
+        <tr>
+          <td style="padding:10px; font-weight:bold; color:#666;">Video ID</td>
+          <td style="padding:10px;"><a href="https://youtube.com/watch?v=${videoId}" style="color:#E67E22;">${videoId}</a></td>
+        </tr>
+      </table>
+      <p style="color:#313131; font-size:15px; line-height:1.6;">
+        <strong>Qué hacer:</strong> Ejecutá <code>/publicar-blog</code> en Claude Code para subir el draft a WordPress. El cron de backup del martes lo va a publicar automáticamente.
+      </p>
+      <p style="color:#999; font-size:13px; margin-top:24px;">— Nexo-mail (cron automático)</p>
+    </div>`;
+
+  try {
+    await transacApi.sendTransacEmail(email);
+    console.log(`Alert email sent: no draft for video "${videoTitle}"`);
+  } catch (err) {
+    console.error('Failed to send no-draft alert:', err);
+  }
+}
+
 // ─── Main Handler ────────────────────────────────────────────
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const authHeader = request.headers.get('authorization');
@@ -194,12 +237,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // 4. Find draft with placeholder (prefer date-matched)
     const draft = await findDraftWithPlaceholder(auth, video.published);
     if (!draft) {
+      await sendNoDraftAlert(video.title, video.id);
       return NextResponse.json({
         success: true,
         skipped: true,
         reason: 'No draft found with {{YOUTUBE_EMBED}} placeholder',
-        hint: 'Run /guion-postprod to generate the blog draft first',
+        hint: 'Run /publicar-blog to upload the blog draft to WordPress',
         videoTitle: video.title,
+        alertSent: true,
       });
     }
 

@@ -20,9 +20,53 @@ function formatDate(date: Date): string {
   });
 }
 
+function getTokenExpiryWarning(expiresAt: string | undefined): string {
+  if (!expiresAt) return '';
+
+  const now = new Date();
+  const expiry = new Date(expiresAt);
+  const daysLeft = Math.floor((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (daysLeft <= 0) {
+    return `<div style="background:#e74c3c; border-radius:8px; padding:20px; margin-bottom:20px; text-align:center;">
+      <p style="margin:0 0 8px; font-size:20px; font-weight:700; color:#ffffff;">TOKEN EXPIRADO</p>
+      <p style="margin:0 0 16px; font-size:15px; color:#ffffff;">Tu conexion LinkedIn se desconecto. Los posts NO se van a publicar hasta que reconectes.</p>
+      <a href="https://zernio.com" style="display:inline-block; background:#ffffff; color:#e74c3c; text-decoration:none; padding:12px 30px; border-radius:30px; font-size:15px; font-weight:700;">Reconectar ahora (30 seg)</a>
+      <p style="margin:12px 0 0; font-size:13px; color:#ffffff; opacity:0.8;">Zernio &gt; Connections &gt; LinkedIn &gt; Reconnect &gt; Login</p>
+    </div>`;
+  }
+
+  if (daysLeft <= 1) {
+    return `<div style="background:#e74c3c; border-radius:8px; padding:20px; margin-bottom:20px; text-align:center;">
+      <p style="margin:0 0 8px; font-size:20px; font-weight:700; color:#ffffff;">EXPIRA MANANA</p>
+      <p style="margin:0 0 16px; font-size:15px; color:#ffffff;">Tu conexion LinkedIn expira manana. Reconecta AHORA o los posts dejaran de publicarse.</p>
+      <a href="https://zernio.com" style="display:inline-block; background:#ffffff; color:#e74c3c; text-decoration:none; padding:12px 30px; border-radius:30px; font-size:15px; font-weight:700;">Reconectar ahora (30 seg)</a>
+      <p style="margin:12px 0 0; font-size:13px; color:#ffffff; opacity:0.8;">Zernio &gt; Connections &gt; LinkedIn &gt; Reconnect &gt; Login</p>
+    </div>`;
+  }
+
+  if (daysLeft <= 7) {
+    return `<div style="background:#E67E22; border-radius:8px; padding:20px; margin-bottom:20px; text-align:center;">
+      <p style="margin:0 0 8px; font-size:18px; font-weight:700; color:#ffffff;">Token expira en ${daysLeft} dias</p>
+      <p style="margin:0 0 16px; font-size:15px; color:#ffffff;">Renova la conexion LinkedIn antes de que expire. Son 30 segundos.</p>
+      <a href="https://zernio.com" style="display:inline-block; background:#ffffff; color:#E67E22; text-decoration:none; padding:12px 30px; border-radius:30px; font-size:15px; font-weight:700;">Renovar conexion</a>
+      <p style="margin:12px 0 0; font-size:13px; color:#ffffff; opacity:0.8;">Zernio &gt; Connections &gt; LinkedIn &gt; Reconnect &gt; Login</p>
+    </div>`;
+  }
+
+  if (daysLeft <= 14) {
+    return `<div style="background:#f8f9fa; border-radius:8px; padding:12px 20px; margin-bottom:20px; border-left:4px solid #E67E22;">
+      <p style="margin:0; font-size:14px; color:#666;">Token LinkedIn expira en <strong style="color:#E67E22;">${daysLeft} dias</strong> — <a href="https://zernio.com" style="color:#0077B5;">renovar en Zernio</a> (30 seg)</p>
+    </div>`;
+  }
+
+  return '';
+}
+
 function buildReminderHtml(
   date: string,
   connectionStatus: string,
+  tokenWarning: string,
   postsThisWeek: number,
   postsThisMonth: number,
   recentPosts: Array<{ content: string; createdAt: string }>
@@ -37,8 +81,8 @@ function buildReminderHtml(
         .join('')
     : '<li style="color:#999999; font-size:15px;">No hubo publicaciones esta semana.</li>';
 
-  const connectionColor = connectionStatus === 'connected' ? '#48c9b0' : '#E67E22';
-  const connectionLabel = connectionStatus === 'connected' ? 'Conectado' : connectionStatus;
+  const connectionColor = connectionStatus === 'connected' ? '#48c9b0' : '#e74c3c';
+  const connectionLabel = connectionStatus === 'connected' ? 'Conectado' : 'DESCONECTADO';
 
   return `<!DOCTYPE html>
 <html>
@@ -59,6 +103,9 @@ function buildReminderHtml(
 
 <!-- Body -->
 <tr><td style="padding:30px;">
+
+  <!-- TOKEN WARNING (if applicable) -->
+  ${tokenWarning}
 
   <!-- Connection status -->
   <div style="background:#f8f9fa; border-radius:8px; padding:16px 20px; margin-bottom:20px;">
@@ -116,8 +163,48 @@ function buildReminderHtml(
 </html>`;
 }
 
+function buildUrgentTokenEmail(daysLeft: number): string {
+  const isExpired = daysLeft <= 0;
+  const bgColor = isExpired ? '#e74c3c' : '#E67E22';
+  const title = isExpired ? 'LinkedIn DESCONECTADO' : `LinkedIn expira en ${daysLeft} dia${daysLeft === 1 ? '' : 's'}`;
+  const subtitle = isExpired
+    ? 'Los posts de LinkedIn NO se van a publicar hasta que reconectes.'
+    : 'Reconecta ahora para que tus posts se sigan publicando.';
+
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0; padding:0; background:#f4f4f4; font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f4; padding:20px 0;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff; border-radius:8px; overflow:hidden; max-width:600px; width:100%;">
+<tr><td style="background:${bgColor}; padding:40px 30px; text-align:center;">
+  <p style="margin:0 0 12px; font-size:40px;">&#9888;</p>
+  <h1 style="margin:0 0 12px; font-size:24px; color:#ffffff; font-weight:700;">${title}</h1>
+  <p style="margin:0 0 24px; font-size:16px; color:#ffffff; opacity:0.9;">${subtitle}</p>
+  <a href="https://zernio.com" style="display:inline-block; background:#ffffff; color:${bgColor}; text-decoration:none; padding:16px 40px; border-radius:30px; font-size:18px; font-weight:700;">Reconectar ahora</a>
+</td></tr>
+<tr><td style="padding:30px; text-align:center;">
+  <h2 style="margin:0 0 16px; font-size:18px; color:#152735;">Instrucciones (30 segundos)</h2>
+  <ol style="text-align:left; padding-left:24px; margin:0 0 20px;">
+    <li style="margin-bottom:8px; font-size:15px; color:#313131;">Hace click en el boton de arriba</li>
+    <li style="margin-bottom:8px; font-size:15px; color:#313131;">En Zernio, anda a <strong>Connections</strong></li>
+    <li style="margin-bottom:8px; font-size:15px; color:#313131;">En LinkedIn, click en <strong>Reconnect</strong></li>
+    <li style="margin-bottom:8px; font-size:15px; color:#313131;">Ingresa tu usuario y contrasena de LinkedIn</li>
+    <li style="margin-bottom:8px; font-size:15px; color:#313131;">Listo — queda renovado por 60 dias mas</li>
+  </ol>
+</td></tr>
+<tr><td style="padding:16px 30px; border-top:1px solid #e0e0e0; text-align:center;">
+  <p style="margin:0; font-size:12px; color:#999;">Nexo-mail — LinkedIn automation</p>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>`;
+}
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  // Verify cron secret (Vercel sets this header for cron jobs)
   const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
 
@@ -125,7 +212,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Check required env vars
   if (!process.env.ZERNIO_API_KEY) {
     return NextResponse.json(
       { success: false, error: 'ZERNIO_API_KEY not configured' },
@@ -134,7 +220,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    // 1. Check connection health and get posts in parallel
     const [healthResult, postsResult] = await Promise.all([
       getAccountHealth(),
       listPosts(),
@@ -144,7 +229,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       ? (healthResult.data?.status || 'unknown')
       : 'error';
 
-    // 2. Count posts this week/month
+    const tokenExpiresAt = healthResult.data?.expiresAt;
+
+    // Count posts this week/month
     const now = new Date();
     const startOfWeek = new Date(now);
     startOfWeek.setDate(now.getDate() - now.getDay());
@@ -167,11 +254,39 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }
     }
 
-    // 3. Build and send reminder email via Brevo transactional API
+    // Check token expiry
+    const tokenWarning = getTokenExpiryWarning(tokenExpiresAt);
+    let daysUntilExpiry = -1;
+    if (tokenExpiresAt) {
+      daysUntilExpiry = Math.floor((new Date(tokenExpiresAt).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    }
+
+    // Send urgent standalone email if token expiring in 7 days, 3 days, or 1 day
+    // (separate from the weekly reminder, so it's impossible to miss)
+    let urgentEmailSent = false;
+    if (daysUntilExpiry >= 0 && daysUntilExpiry <= 7) {
+      const urgentHtml = buildUrgentTokenEmail(daysUntilExpiry);
+      const urgentEmail = new Brevo.SendSmtpEmail();
+      urgentEmail.sender = { email: 'info@urologia.ar', name: 'LinkedIn URGENTE' };
+      urgentEmail.to = [{ email: REMINDER_EMAIL }];
+      urgentEmail.subject = daysUntilExpiry <= 0
+        ? '🔴 LinkedIn DESCONECTADO — reconectar ahora'
+        : daysUntilExpiry <= 1
+          ? '🔴 LinkedIn expira MAÑANA — reconectar ahora'
+          : `🟠 LinkedIn expira en ${daysUntilExpiry} días — renovar conexión`;
+      urgentEmail.htmlContent = urgentHtml;
+
+      await transacApi.sendTransacEmail(urgentEmail);
+      urgentEmailSent = true;
+      console.log(`URGENT LinkedIn token email sent: ${daysUntilExpiry} days left`);
+    }
+
+    // Send weekly reminder
     const dateStr = formatDate(now);
     const html = buildReminderHtml(
       dateStr,
       connectionStatus,
+      tokenWarning,
       postsThisWeek,
       postsThisMonth,
       recentPosts
@@ -186,12 +301,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const emailResult = await transacApi.sendTransacEmail(sendEmail);
 
     console.log(
-      `LinkedIn reminder sent: ${postsThisWeek} posts this week, connection: ${connectionStatus}`
+      `LinkedIn reminder sent: ${postsThisWeek} posts this week, connection: ${connectionStatus}, token days left: ${daysUntilExpiry}`
     );
 
     return NextResponse.json({
       success: true,
       connectionStatus,
+      tokenDaysLeft: daysUntilExpiry,
+      urgentEmailSent,
       postsThisWeek,
       postsThisMonth,
       emailSent: true,

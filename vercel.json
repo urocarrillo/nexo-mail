@@ -28,6 +28,9 @@
     "src/app/api/cron/linkedin-reminder/route.ts": {
       "maxDuration": 10
     },
+    "src/app/api/cron/linkedin-token-check/route.ts": {
+      "maxDuration": 10
+    },
     "src/app/api/cron/weekly-analytics/route.ts": {
       "maxDuration": 15
     }
@@ -68,6 +71,10 @@
     {
       "path": "/api/cron/weekly-analytics",
       "schedule": "0 12 * * 3"
+    },
+    {
+      "path": "/api/cron/linkedin-token-check",
+      "schedule": "0 14 * * *"
     }
   ]
 }

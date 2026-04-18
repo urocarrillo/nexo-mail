@@ -16,18 +16,38 @@ const transacApi = new Brevo.TransactionalEmailsApi();
 transacApi.setApiKey(Brevo.TransactionalEmailsApiApiKeys.apiKey, BREVO_API_KEY);
 
 const TONE_PROMPTS: Record<string, string> = {
-  cercano: `Reescribí este post de LinkedIn con un tono MÁS CERCANO y personal.
-Que suene como alguien compartiendo una experiencia real, no como un consultor dando una clase.
-Usá primera persona, anécdotas concretas, emociones genuinas.
-NO inventes datos, números, fechas ni anécdotas. Si el original tiene datos, mantenerlos tal cual.
-Mantené la misma estructura (hook corto < 140 chars, párrafos cortos, hashtags al final).
+  cercano: `REESCRIBÍ COMPLETAMENTE este post de LinkedIn. Cambios grandes, no cosméticos.
+
+OBJETIVO: que suene como una conversación real, como si Mauro estuviera tomando un café con un colega y le contara algo que lo sorprendió.
+
+CAMBIOS OBLIGATORIOS:
+- Cambiá el hook por completo (uno nuevo, diferente, < 140 chars)
+- Reestructurá el post: no puede quedar parecido al original
+- Usá primera persona con emoción genuina ("me quedé pensando", "no me lo esperaba")
+- Si el original tiene formato lista, cambialo a narrativa fluida
+- Si el original es muy técnico, priorizá la historia humana detrás del dato
+- Los datos duros que estén en el original se pueden mantener, pero integrados en la narrativa
+- NO inventes datos, números, fechas ni anécdotas nuevas
+- Hook < 140 chars, párrafos cortos (1-2 oraciones), hashtags al final, CTA como pregunta abierta
+- 1300-1900 caracteres total
+
 Devolvé SOLO el post reescrito, sin explicaciones.`,
 
-  profesional: `Reescribí este post de LinkedIn con un tono MÁS PROFESIONAL y orientado a datos.
-Que suene como un experto compartiendo insights de negocio, con autoridad pero sin arrogancia.
-Enfocá en resultados, métricas, frameworks, aprendizajes transferibles.
-NO inventes datos, números, fechas ni estadísticas. Si no hay datos en el original, no los agregues.
-Mantené la misma estructura (hook corto < 140 chars, párrafos cortos, hashtags al final).
+  profesional: `REESCRIBÍ COMPLETAMENTE este post de LinkedIn. Cambios grandes, no cosméticos.
+
+OBJETIVO: que suene como un experto que comparte un insight de negocio con autoridad. Enfocado en lo que esto SIGNIFICA para empresas o profesionales de salud.
+
+CAMBIOS OBLIGATORIOS:
+- Cambiá el hook por completo (uno nuevo orientado a negocio/industria, < 140 chars)
+- Reestructurá el post: el ángulo debe ser empresarial, no clínico
+- Si el original habla del tema médico, giralo hacia: "¿qué significa esto para empresas de salud?"
+- Usá formato lista con insights numerados cuando tenga sentido
+- Incluí una reflexión sobre la industria o el mercado de salud
+- Los datos del original se mantienen pero recontextualizados para audiencia B2B
+- NO inventes datos, números ni estadísticas nuevas
+- Hook < 140 chars, párrafos cortos, hashtags al final, CTA que invite a compartir experiencia profesional
+- 1300-1900 caracteres total
+
 Devolvé SOLO el post reescrito, sin explicaciones.`,
 
   datos: `Revisá este post de LinkedIn enfocándote en VERIFICAR DATOS Y CONTENIDO.
@@ -37,6 +57,23 @@ Devolvé SOLO el post reescrito, sin explicaciones.`,
 - NO inventes datos nuevos. Si algo no se puede verificar, eliminalo.
 Mantené la misma estructura (hook corto < 140 chars, párrafos cortos, hashtags al final).
 Devolvé SOLO el post corregido, sin explicaciones.`,
+
+  reformular: `DESCARTÁ este post y escribí uno COMPLETAMENTE NUEVO sobre el mismo tema.
+
+REGLAS:
+- Usá un enfoque, ángulo y estructura TOTALMENTE diferentes al original
+- Nuevo hook (< 140 chars), nueva estructura, nueva narrativa
+- Podés usar los mismos datos/papers del original pero desde otra perspectiva
+- El autor es Mauro Carrillo, urólogo argentino con 330K suscriptores en YouTube
+- Tono: profesional pero accesible, primera persona, sin rioplatense extremo
+- NO inventes datos, números, fechas ni anécdotas
+- Narrativa de CRECIMIENTO POSITIVO (nunca de carencia o incompetencia)
+- Hook < 140 chars, párrafos cortos (1-2 oraciones max), hashtags al final (3-5)
+- CTA: pregunta abierta que invite a comentar
+- 1300-1900 caracteres total
+- Links van en primer comentario, nunca en el body
+
+Devolvé SOLO el post nuevo, sin explicaciones.`,
 };
 
 async function getPostContent(postId: string): Promise<string | null> {
@@ -64,6 +101,7 @@ function buildApprovalEmail(content: string, postId: string, iteration: number, 
   const cercanoUrl = `${BASE_URL}/api/linkedin/regenerate?postId=${postId}&token=${process.env.API_SECRET_KEY}&tone=cercano`;
   const profesionalUrl = `${BASE_URL}/api/linkedin/regenerate?postId=${postId}&token=${process.env.API_SECRET_KEY}&tone=profesional`;
   const datosUrl = `${BASE_URL}/api/linkedin/regenerate?postId=${postId}&token=${process.env.API_SECRET_KEY}&tone=datos`;
+  const reformularUrl = `${BASE_URL}/api/linkedin/regenerate?postId=${postId}&token=${process.env.API_SECRET_KEY}&tone=reformular`;
   const rejectUrl = `${BASE_URL}/api/linkedin/reject?postId=${postId}&token=${process.env.API_SECRET_KEY}`;
   const editUrl = `${BASE_URL}/api/linkedin/edit?postId=${postId}&token=${process.env.API_SECRET_KEY}`;
   const previewContent = content.replace(/\n/g, '<br>');
@@ -104,14 +142,17 @@ function buildApprovalEmail(content: string, postId: string, iteration: number, 
   <!-- TONE BUTTONS -->
   <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;">
   <tr>
-    <td width="33%" style="padding:4px; text-align:center;">
-      <a href="${cercanoUrl}" style="display:block; background:#48c9b0; color:#fff; text-decoration:none; padding:10px 8px; border-radius:6px; font-size:13px; font-weight:600;">Mas cercano</a>
+    <td width="25%" style="padding:4px; text-align:center;">
+      <a href="${cercanoUrl}" style="display:block; background:#48c9b0; color:#fff; text-decoration:none; padding:10px 4px; border-radius:6px; font-size:12px; font-weight:600;">Mas cercano</a>
     </td>
-    <td width="33%" style="padding:4px; text-align:center;">
-      <a href="${profesionalUrl}" style="display:block; background:#152735; color:#fff; text-decoration:none; padding:10px 8px; border-radius:6px; font-size:13px; font-weight:600;">Mas profesional</a>
+    <td width="25%" style="padding:4px; text-align:center;">
+      <a href="${profesionalUrl}" style="display:block; background:#152735; color:#fff; text-decoration:none; padding:10px 4px; border-radius:6px; font-size:12px; font-weight:600;">Mas profesional</a>
     </td>
-    <td width="33%" style="padding:4px; text-align:center;">
-      <a href="${datosUrl}" style="display:block; background:#5ac8fa; color:#fff; text-decoration:none; padding:10px 8px; border-radius:6px; font-size:13px; font-weight:600;">Revisar datos</a>
+    <td width="25%" style="padding:4px; text-align:center;">
+      <a href="${datosUrl}" style="display:block; background:#5ac8fa; color:#fff; text-decoration:none; padding:10px 4px; border-radius:6px; font-size:12px; font-weight:600;">Revisar datos</a>
+    </td>
+    <td width="25%" style="padding:4px; text-align:center;">
+      <a href="${reformularUrl}" style="display:block; background:#9b59b6; color:#fff; text-decoration:none; padding:10px 4px; border-radius:6px; font-size:12px; font-weight:600;">Reformular</a>
     </td>
   </tr>
   </table>

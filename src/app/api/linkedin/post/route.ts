@@ -59,6 +59,7 @@ function buildApprovalEmail(content: string, postId: string, firstComment?: stri
   const cercanoUrl = `${BASE_URL}/api/linkedin/regenerate?postId=${postId}&token=${process.env.API_SECRET_KEY}&tone=cercano`;
   const profesionalUrl = `${BASE_URL}/api/linkedin/regenerate?postId=${postId}&token=${process.env.API_SECRET_KEY}&tone=profesional`;
   const datosUrl = `${BASE_URL}/api/linkedin/regenerate?postId=${postId}&token=${process.env.API_SECRET_KEY}&tone=datos`;
+  const reformularUrl = `${BASE_URL}/api/linkedin/regenerate?postId=${postId}&token=${process.env.API_SECRET_KEY}&tone=reformular`;
   const rejectUrl = `${BASE_URL}/api/linkedin/reject?postId=${postId}&token=${process.env.API_SECRET_KEY}`;
   const editUrl = `${BASE_URL}/api/linkedin/edit?postId=${postId}&token=${process.env.API_SECRET_KEY}`;
   const previewContent = content.replace(/\n/g, '<br>');
@@ -95,14 +96,17 @@ function buildApprovalEmail(content: string, postId: string, firstComment?: stri
 
   <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;">
   <tr>
-    <td width="33%" style="padding:4px; text-align:center;">
-      <a href="${cercanoUrl}" style="display:block; background:#48c9b0; color:#fff; text-decoration:none; padding:10px 8px; border-radius:6px; font-size:13px; font-weight:600;">Mas cercano</a>
+    <td width="25%" style="padding:4px; text-align:center;">
+      <a href="${cercanoUrl}" style="display:block; background:#48c9b0; color:#fff; text-decoration:none; padding:10px 4px; border-radius:6px; font-size:12px; font-weight:600;">Mas cercano</a>
     </td>
-    <td width="33%" style="padding:4px; text-align:center;">
-      <a href="${profesionalUrl}" style="display:block; background:#152735; color:#fff; text-decoration:none; padding:10px 8px; border-radius:6px; font-size:13px; font-weight:600;">Mas profesional</a>
+    <td width="25%" style="padding:4px; text-align:center;">
+      <a href="${profesionalUrl}" style="display:block; background:#152735; color:#fff; text-decoration:none; padding:10px 4px; border-radius:6px; font-size:12px; font-weight:600;">Mas profesional</a>
     </td>
-    <td width="33%" style="padding:4px; text-align:center;">
-      <a href="${datosUrl}" style="display:block; background:#5ac8fa; color:#fff; text-decoration:none; padding:10px 8px; border-radius:6px; font-size:13px; font-weight:600;">Revisar datos</a>
+    <td width="25%" style="padding:4px; text-align:center;">
+      <a href="${datosUrl}" style="display:block; background:#5ac8fa; color:#fff; text-decoration:none; padding:10px 4px; border-radius:6px; font-size:12px; font-weight:600;">Revisar datos</a>
+    </td>
+    <td width="25%" style="padding:4px; text-align:center;">
+      <a href="${reformularUrl}" style="display:block; background:#9b59b6; color:#fff; text-decoration:none; padding:10px 4px; border-radius:6px; font-size:12px; font-weight:600;">Reformular</a>
     </td>
   </tr>
   </table>

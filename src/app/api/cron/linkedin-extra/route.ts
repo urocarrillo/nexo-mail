@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { kv } from '@vercel/kv';
+import { LINKEDIN_SYSTEM_PROMPT } from '@/lib/linkedin-prompts';
 
 export const maxDuration = 60;
 
@@ -33,52 +34,23 @@ const TOPICS: Array<{ id: number; title: string; category: string; pattern: stri
   { id: 18, title: 'Por qué los médicos generan más confianza que los influencers en salud', category: 'soluciones_empresas', pattern: 'opinion' },
 ];
 
-function buildSystemPrompt(): string {
-  return `Sos un escritor de posts de LinkedIn para Mauro Carrillo (Urólogo argentino con 330K suscriptores en YouTube, creador de contenido orgánico sobre salud sexual masculina).
-
-REGLAS CRÍTICAS DEL SISTEMA — NUNCA romper:
-
-1. NUNCA cites autores/años de papers ("Zaviacic 2000", "Smith et al.", "un estudio de X de 2019"). Si hay un dato, integrarlo sin autor ni año.
-
-2. NUNCA inventes autoridad clínica: "en muchos años atendiendo…", "me pasó en consulta que…", "tratando 10.000 pacientes…", "un paciente me dijo…", "con los años aprendí…", "como urólogo mi formación…". Solo usar si la anécdota es real y verificable. Reemplazar con fenómeno general ("es frecuente que…") o referencia al trabajo ("esta semana investigué…").
-
-3. NUNCA inventes números, suscriptores exactos, porcentajes, fechas o pacientes. Datos reales conocidos: canal YouTube con 330K suscriptores, programa de 295 USD, 8000+ contactos en lista de emails, urologia.ar. Si no estás seguro de un número, usar lenguaje vago ("miles", "hace años", "con el tiempo").
-
-4. NUNCA uses frases genéricas de IA: "sin filtro", "basado en evidencia", "cero spam", "respaldado por estudios", "lo que nadie te cuenta", "datos concretos", "directo a tu bandeja", "sin rodeos".
-
-5. NUNCA uses "urólogo especializado en salud sexual masculina" → solo "Urólogo Mauro Carrillo" o "Mauro".
-
-6. NUNCA invites a responder el post por email, WhatsApp o mensaje privado.
-
-7. NUNCA hagas parecer a Mauro incompetente o necesitado. Narrativa de descubrimiento positivo y crecimiento, no de carencia ("no tenía idea de cómo vender" → "no me hubiera imaginado que llegaría tan lejos").
-
-8. NUNCA uses el formato "Tres datos que deberían incomodar" ni listas numeradas de hallazgos de papers. LinkedIn no es PubMed.
-
-FORMATO OBLIGATORIO:
-- Hook máximo 140 caracteres (fold de mobile)
-- 1-2 oraciones por párrafo, línea en blanco entre cada uno
-- 1300-1900 caracteres totales
-- 0-2 emojis, 3-5 hashtags al final (nunca en el cuerpo)
-- Primera persona siempre
-- CTA = pregunta abierta que invite a compartir experiencia
-
-PATRONES:
-- historia: confesión/anécdota personal → tensión → giro → lección → CTA
-- lista: afirmación con número → 3-5 puntos cortos con etiqueta corta → cierre
-- opinion: hot take contrarian → argumento → reencuadre → CTA polarizante
-- prueba: resultado/número → backstory → qué hice → conclusión → CTA
-
-Devolvé SOLO el post final, sin explicaciones ni preámbulos.`;
-}
+const PATTERN_DESCRIPTIONS: Record<string, string> = {
+  historia: 'confesión/anécdota personal breve → tensión o problema → giro/descubrimiento → lección transferible → CTA pregunta',
+  lista: 'afirmación fuerte con un número → 3-5 puntos cortos con etiqueta corta (no numeración visible tipo "1." "2." "3.") → cierre que reenmarca → CTA pregunta',
+  opinion: 'hot take contrarian en la primera línea → sabiduría convencional que desafía → tu argumento con 1-2 datos → reencuadre → CTA pregunta polarizante',
+  prueba: 'resultado/número concreto → backstory corto → qué hiciste específicamente → repetición del resultado con contexto → conclusión (principio detrás) → CTA pregunta',
+};
 
 function buildUserPrompt(topic: { title: string; category: string; pattern: string }): string {
-  return `Tema: ${topic.title}
-Categoría: ${topic.category}
-Patrón a usar: ${topic.pattern}
+  return `Escribí un post de LinkedIn sobre este tema:
 
-Escribí un post de LinkedIn sobre este tema con el patrón indicado. Respetá TODAS las reglas del sistema. Sin citas nominales, sin autoridad clínica inventada, sin datos inventados.
+TEMA: ${topic.title}
+CATEGORÍA: ${topic.category === 'behind_scenes' ? 'Behind the scenes (mostrar procesos reales como prueba de expertise)' : 'Soluciones para empresas de salud (posts que venden consultoría sin vender)'}
+PATRÓN: ${topic.pattern} — ${PATTERN_DESCRIPTIONS[topic.pattern] || topic.pattern}
 
-Devolvé SOLO el post completo listo para publicar (texto del post + hashtags al final). Nada más.`;
+${topic.category === 'soluciones_empresas' ? 'AUDIENCIA: equipos de marketing y dirección de empresas farmacéuticas, prepagas, clínicas privadas, healthtech. El objetivo es que alguien de esas empresas lea y piense "este tipo sabe de lo que habla, le escribo".' : 'AUDIENCIA: otros creadores de contenido profesional, emprendedores de salud, consultores. Queremos que piensen "quiero aprender de este proceso".'}
+
+Aplicá TODAS las reglas del system prompt, corré el checklist auto-review mentalmente y devolvé SOLO el post final.`;
 }
 
 async function selectNextTopic(): Promise<{ topic: typeof TOPICS[0]; newIndex: number }> {
@@ -99,7 +71,7 @@ async function generatePost(topic: typeof TOPICS[0]): Promise<string> {
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 1500,
-    system: buildSystemPrompt(),
+    system: LINKEDIN_SYSTEM_PROMPT,
     messages: [{ role: 'user', content: buildUserPrompt(topic) }],
   });
   return (message.content[0] as { type: string; text: string }).text.trim();

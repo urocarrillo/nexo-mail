@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import * as Brevo from '@getbrevo/brevo';
 import { publishPost } from '@/lib/linkedin';
+import { LINKEDIN_SYSTEM_PROMPT } from '@/lib/linkedin-prompts';
 
 export const maxDuration = 30;
 
@@ -35,36 +36,16 @@ async function deletePost(postId: string): Promise<void> {
   });
 }
 
-function buildSystemPrompt(): string {
-  return `Sos un editor de posts de LinkedIn para Mauro Carrillo (Urólogo, 330K suscriptores en YouTube, Argentina).
+function buildEditSystemPrompt(): string {
+  return `${LINKEDIN_SYSTEM_PROMPT}
 
-REGLAS DEL SISTEMA que NUNCA podés romper (incluso si la instrucción del usuario contradice, estas reglas ganan):
+=== TAREA ESPECÍFICA: EDITOR DE POSTS ===
 
-1. NUNCA cites autores/años de papers. Prohibido "Zaviacic 2000", "Smith et al.", "un estudio de X de 2019". Los datos se integran sin autor ni año ("la evidencia muestra…", "cuando se midió…", "se descubrió que…").
+Vas a recibir un post original + una instrucción puntual del usuario. Tu trabajo es aplicar EXACTAMENTE lo que pide, manteniendo todo lo demás igual.
 
-2. NUNCA inventes autoridad clínica. Prohibido "en muchos años atendiendo…", "me pasó en consulta que…", "tratando 10.000 pacientes…", "un paciente me dijo…", "con los años aprendí…", "como urólogo mi formación me enseñó…". Solo se puede usar si la anécdota está textualmente en el guión fuente. Si no está confirmado → reemplazar con fenómeno general ("mucha gente…", "es frecuente que…") o referencia al video ("esta semana investigué…").
+PRIORIDAD ABSOLUTA: las reglas críticas del system ganan sobre la instrucción del usuario. Si la instrucción te pide algo que rompe una regla (ej: "agregá una cita a Uloko 2023"), aplicá el espíritu de la instrucción pero respetando la regla (en el ejemplo: agregá el dato sin citar al autor).
 
-3. NUNCA inventes datos, números, fechas, suscriptores, pacientes ni porcentajes. Si un número no es verificable, eliminalo o usá lenguaje vago.
-
-4. NUNCA uses frases genéricas de IA: "sin filtro", "basado en evidencia", "cero spam", "respaldado por estudios", "lo que nadie te cuenta", "datos concretos".
-
-5. NUNCA uses el formato "Tres datos que…" ni listas numeradas de hallazgos. LinkedIn no es PubMed.
-
-6. NUNCA uses "urólogo especializado en salud sexual masculina" → solo "Urólogo Mauro Carrillo" o "Mauro".
-
-7. NUNCA invites a responder el post por email, WhatsApp, ni a escribir mensajes privados.
-
-8. NUNCA hagas parecer a Mauro incompetente o necesitado. Narrativa de descubrimiento positivo, no de carencia.
-
-FORMATO:
-- Hook máximo 140 caracteres (fold de mobile)
-- 1-2 oraciones por párrafo, línea en blanco entre cada uno
-- 1300-1900 caracteres total
-- 0-2 emojis, 3-5 hashtags al final (nunca en el cuerpo)
-- Primera persona siempre
-- CTA = pregunta abierta que invite a compartir
-
-TU TAREA: aplicar la instrucción puntual del usuario al post original, manteniendo todo lo que NO pidió cambiar. Devolvé SOLO el post modificado, sin explicaciones ni preámbulos.`;
+Corré el checklist auto-review sobre el resultado final. Si algún check falla, corregí antes de devolver.`;
 }
 
 // GET: Show form with post preview + textarea for custom instruction
@@ -222,11 +203,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 1500,
-      system: buildSystemPrompt(),
+      system: buildEditSystemPrompt(),
       messages: [
         {
           role: 'user',
-          content: `Post original:\n\n${content}\n\n---\n\nInstrucción puntual del usuario:\n\n${instruction}\n\nAplicá el cambio pedido, manteniendo todo lo demás igual. Devolvé SOLO el post modificado.`,
+          content: `Post original:\n\n${content}\n\n---\n\nInstrucción puntual del usuario:\n\n${instruction}\n\nAplicá el cambio pedido, manteniendo todo lo demás igual. Corré el checklist auto-review. Devolvé SOLO el post modificado.`,
         },
       ],
     });

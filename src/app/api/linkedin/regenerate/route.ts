@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import * as Brevo from '@getbrevo/brevo';
 import { publishPost } from '@/lib/linkedin';
+import { LINKEDIN_SYSTEM_PROMPT } from '@/lib/linkedin-prompts';
 
 export const maxDuration = 30;
 
@@ -16,64 +17,57 @@ const transacApi = new Brevo.TransactionalEmailsApi();
 transacApi.setApiKey(Brevo.TransactionalEmailsApiApiKeys.apiKey, BREVO_API_KEY);
 
 const TONE_PROMPTS: Record<string, string> = {
-  cercano: `REESCRIBÍ COMPLETAMENTE este post de LinkedIn. Cambios grandes, no cosméticos.
+  cercano: `TAREA: reescribir el post completamente con un giro de tono más CERCANO.
 
-OBJETIVO: que suene como una conversación real, como si Mauro estuviera tomando un café con un colega y le contara algo que lo sorprendió.
-
-CAMBIOS OBLIGATORIOS:
-- Cambiá el hook por completo (uno nuevo, diferente, < 140 chars)
-- Reestructurá el post: no puede quedar parecido al original
-- Usá primera persona con emoción genuina ("me quedé pensando", "no me lo esperaba")
-- Si el original tiene formato lista, cambialo a narrativa fluida
-- Si el original es muy técnico, priorizá la historia humana detrás del dato
-- Los datos duros que estén en el original se pueden mantener, pero integrados en la narrativa
-- NO inventes datos, números, fechas ni anécdotas nuevas
-- Hook < 140 chars, párrafos cortos (1-2 oraciones), hashtags al final, CTA como pregunta abierta
-- 1300-1900 caracteres total
-
-Devolvé SOLO el post reescrito, sin explicaciones.`,
-
-  profesional: `REESCRIBÍ COMPLETAMENTE este post de LinkedIn. Cambios grandes, no cosméticos.
-
-OBJETIVO: que suene como un experto que comparte un insight de negocio con autoridad. Enfocado en lo que esto SIGNIFICA para empresas o profesionales de salud.
+OBJETIVO: que suene como Mauro tomando un café con un colega, contando algo que lo sorprendió de un paper o de un tema. Sigue siendo profesional, pero con más emoción genuina y menos formal.
 
 CAMBIOS OBLIGATORIOS:
-- Cambiá el hook por completo (uno nuevo orientado a negocio/industria, < 140 chars)
-- Reestructurá el post: el ángulo debe ser empresarial, no clínico
-- Si el original habla del tema médico, giralo hacia: "¿qué significa esto para empresas de salud?"
-- Usá formato lista con insights numerados cuando tenga sentido
-- Incluí una reflexión sobre la industria o el mercado de salud
-- Los datos del original se mantienen pero recontextualizados para audiencia B2B
-- NO inventes datos, números ni estadísticas nuevas
-- Hook < 140 chars, párrafos cortos, hashtags al final, CTA que invite a compartir experiencia profesional
-- 1300-1900 caracteres total
+- Hook completamente nuevo (diferente al original, ≤ 140 chars).
+- Reestructurá la narrativa. No puede quedar parecido al original.
+- Primera persona con emoción genuina: "me quedé pensando en", "no me lo esperaba", "me sorprendió encontrar".
+- Si el original tiene formato lista, pasalo a narrativa fluida.
+- Si el original es muy técnico, priorizá la reflexión humana detrás del dato.
+- Mantené los datos duros del original, pero integrados en la historia (sin citar autores ni años).
 
-Devolvé SOLO el post reescrito, sin explicaciones.`,
+Todo lo demás: aplicar las reglas del system y el checklist auto-review.`,
 
-  datos: `Revisá este post de LinkedIn enfocándote en VERIFICAR DATOS Y CONTENIDO.
-- Si hay números o métricas que parecen inventados o no verificables, reemplazalos con lenguaje vago ("muchos", "con el tiempo").
-- Si hay afirmaciones que podrían ser falsas o exageradas, suavizalas.
-- Si el tono suena a marketer desesperado o hace parecer al autor incompetente, arreglalo. La narrativa debe ser de CRECIMIENTO POSITIVO.
-- NO inventes datos nuevos. Si algo no se puede verificar, eliminalo.
-Mantené la misma estructura (hook corto < 140 chars, párrafos cortos, hashtags al final).
-Devolvé SOLO el post corregido, sin explicaciones.`,
+  profesional: `TAREA: reescribir el post completamente con ángulo B2B / industria salud.
 
-  reformular: `DESCARTÁ este post y escribí uno COMPLETAMENTE NUEVO sobre el mismo tema.
+OBJETIVO: que suene como un experto compartiendo un insight de negocio, con autoridad pero sin arrogancia. Enfocado en qué significa esto para empresas de salud, marketing en salud, dirección médica.
+
+CAMBIOS OBLIGATORIOS:
+- Hook completamente nuevo orientado a negocio o industria (≤ 140 chars).
+- Reestructurá: el ángulo es empresarial, no clínico.
+- Si el original habla de un tema médico, girá hacia "¿qué significa esto para una farmacéutica / prepaga / healthtech?".
+- Incluí al menos una reflexión sobre la industria de la salud o el mercado.
+- Los datos del original se mantienen pero recontextualizados para audiencia B2B (marketing, dirección, ventas).
+- Evitá formato "lista numerada de hallazgos". Si usás lista, que sea con etiquetas cortas, no numeración.
+
+Todo lo demás: aplicar las reglas del system y el checklist auto-review.`,
+
+  datos: `TAREA: revisar el post para endurecer credibilidad de datos y tono, sin cambiar estructura.
+
+OBJETIVO: que cualquier dato del post sea verificable o esté suavizado. Que Mauro no suene a marketer desesperado, incompetente o necesitado.
+
+CAMBIOS OBLIGATORIOS:
+- Cualquier número específico que no sea verificable (suscriptores exactos, porcentajes, años de experiencia, cantidad de pacientes) → reemplazar por lenguaje vago ("miles", "con el tiempo", "hace años").
+- Cualquier cita nominal a paper ("Uloko 2023", "Smith et al.") → eliminar, dejando solo el dato.
+- Cualquier frase de autoridad clínica sin respaldo ("en consulta", "años atendiendo") → reemplazar por fenómeno general.
+- Tono → ajustar si hace parecer a Mauro incompetente o necesitado. Narrativa positiva de crecimiento.
+- Mantené la estructura general del original (hook + cuerpo + CTA).
+
+Todo lo demás: aplicar las reglas del system y el checklist auto-review.`,
+
+  reformular: `TAREA: descartar el post y escribir uno completamente nuevo sobre el mismo tema, con enfoque/ángulo DIFERENTE.
+
+OBJETIVO: explorar una perspectiva que el original no tocó. Si el original era informativo, probá contrarian. Si era B2B, probá personal. Si era técnico, probá reflexivo.
 
 REGLAS:
-- Usá un enfoque, ángulo y estructura TOTALMENTE diferentes al original
-- Nuevo hook (< 140 chars), nueva estructura, nueva narrativa
-- Podés usar los mismos datos/papers del original pero desde otra perspectiva
-- El autor es Mauro Carrillo, urólogo argentino con 330K suscriptores en YouTube
-- Tono: profesional pero accesible, primera persona, sin rioplatense extremo
-- NO inventes datos, números, fechas ni anécdotas
-- Narrativa de CRECIMIENTO POSITIVO (nunca de carencia o incompetencia)
-- Hook < 140 chars, párrafos cortos (1-2 oraciones max), hashtags al final (3-5)
-- CTA: pregunta abierta que invite a comentar
-- 1300-1900 caracteres total
-- Links van en primer comentario, nunca en el body
+- Hook nuevo (≤ 140 chars), narrativa nueva, ángulo distinto.
+- Podés usar los mismos datos que el original, pero desde otro marco.
+- Elegí el patrón (historia/lista/opinion/prueba) que mejor encaje con el nuevo ángulo.
 
-Devolvé SOLO el post nuevo, sin explicaciones.`,
+Todo lo demás: aplicar las reglas del system y el checklist auto-review.`,
 };
 
 async function getPostContent(postId: string): Promise<string | null> {
@@ -219,7 +213,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 1500,
-      messages: [{ role: 'user', content: `${tonePrompt}\n\nPost original:\n\n${content}` }],
+      system: LINKEDIN_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: `${tonePrompt}\n\nPost original:\n\n${content}\n\nCorré el checklist auto-review mentalmente y devolvé SOLO el post nuevo.` }],
     });
 
     const newContent = (message.content[0] as { type: string; text: string }).text.trim();

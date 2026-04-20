@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { listPosts } from '@/lib/linkedin';
 
 const ZERNIO_API_KEY = process.env.ZERNIO_API_KEY || '';
 const ZERNIO_BASE_URL = 'https://zernio.com/api/v1';
@@ -7,8 +8,28 @@ const ZERNIO_BASE_URL = 'https://zernio.com/api/v1';
 // Best time: 9:00 AM Argentina (12:00 UTC)
 const OPTIMAL_DAYS = [2, 3, 4]; // Tue, Wed, Thu
 const OPTIMAL_HOUR_UTC = 12; // 9:00 AM Argentina = 12:00 UTC
+const SLOT_COLLISION_HOURS = 4; // two posts within 4h of each other = collision
 
-function getNextOptimalSlot(): string {
+async function getScheduledSlots(): Promise<number[]> {
+  try {
+    const result = await listPosts();
+    if (!result.success || !result.data) return [];
+    return result.data
+      .filter((p) => p.scheduledFor && (p.status === 'scheduled' || p.status === 'draft'))
+      .map((p) => new Date(p.scheduledFor as string).getTime());
+  } catch (err) {
+    console.error('getScheduledSlots error (falling back to empty):', err);
+    return [];
+  }
+}
+
+function isSlotFree(candidateMs: number, occupiedMs: number[]): boolean {
+  const collisionMs = SLOT_COLLISION_HOURS * 60 * 60 * 1000;
+  return !occupiedMs.some((ts) => Math.abs(ts - candidateMs) < collisionMs);
+}
+
+async function getNextOptimalSlot(): Promise<string> {
+  const occupied = await getScheduledSlots();
   const now = new Date();
   const candidate = new Date(now);
 
@@ -16,18 +37,26 @@ function getNextOptimalSlot(): string {
   candidate.setUTCDate(candidate.getUTCDate() + 1);
   candidate.setUTCHours(OPTIMAL_HOUR_UTC, 0, 0, 0);
 
-  // Find the next Tue/Wed/Thu
-  for (let i = 0; i < 7; i++) {
+  // Scan up to 21 days ahead looking for a Tue/Wed/Thu slot that is not already taken
+  for (let i = 0; i < 21; i++) {
     const day = candidate.getUTCDay();
-    if (OPTIMAL_DAYS.includes(day)) {
+    if (OPTIMAL_DAYS.includes(day) && isSlotFree(candidate.getTime(), occupied)) {
       return candidate.toISOString().replace('Z', '').split('.')[0];
     }
     candidate.setUTCDate(candidate.getUTCDate() + 1);
   }
 
-  // Fallback: next Tuesday
-  candidate.setUTCDate(candidate.getUTCDate() + 1);
-  return candidate.toISOString().replace('Z', '').split('.')[0];
+  // Fallback: first optimal day found, even if occupied
+  const fallback = new Date(now);
+  fallback.setUTCDate(fallback.getUTCDate() + 1);
+  fallback.setUTCHours(OPTIMAL_HOUR_UTC, 0, 0, 0);
+  for (let i = 0; i < 7; i++) {
+    if (OPTIMAL_DAYS.includes(fallback.getUTCDay())) {
+      return fallback.toISOString().replace('Z', '').split('.')[0];
+    }
+    fallback.setUTCDate(fallback.getUTCDate() + 1);
+  }
+  return fallback.toISOString().replace('Z', '').split('.')[0];
 }
 
 function buildSuccessPage(scheduledFor: string): string {
@@ -106,7 +135,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const scheduledFor = getNextOptimalSlot();
+    const scheduledFor = await getNextOptimalSlot();
 
     // Schedule the draft post via Zernio PUT
     const res = await fetch(`${ZERNIO_BASE_URL}/posts/${postId}`, {

@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 
 const WC_BASE_URL = 'https://urologia.ar/wp-json/wc/v3';
-const WP_USER = 'REDACTED_USER';
+const WP_USER = process.env.WP_USER || '';
 const WP_APP_PASSWORD = process.env.WP_APP_PASSWORD || '';
 
 // Products eligible for post-consultation discount

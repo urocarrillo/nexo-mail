@@ -7,7 +7,7 @@ import { getAccountHealth } from '@/lib/linkedin';
 // Runs daily at 13:00 UTC (10:00 AM Argentina)
 
 const BREVO_API_KEY = process.env.BREVO_API_KEY || '';
-const REMINDER_EMAIL = 'REDACTED_EMAIL@example.com';
+const REMINDER_EMAIL = process.env.APPROVAL_EMAIL || '';
 
 const transacApi = new Brevo.TransactionalEmailsApi();
 transacApi.setApiKey(Brevo.TransactionalEmailsApiApiKeys.apiKey, BREVO_API_KEY);

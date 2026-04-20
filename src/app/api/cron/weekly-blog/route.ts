@@ -4,12 +4,12 @@ import * as Brevo from '@getbrevo/brevo';
 export const maxDuration = 30;
 
 const YOUTUBE_CHANNEL_ID = 'UC61wZRxQWvgNZX9Lf0rZ9WQ';
-const WP_USER = 'REDACTED_USER';
+const WP_USER = process.env.WP_USER || '';
 const WP_APP_PASSWORD = process.env.WP_APP_PASSWORD || '';
 const BREVO_API_KEY = process.env.BREVO_API_KEY || '';
 const NEWSLETTER_TAG_ID = 125;
 const VIDEO_PLACEHOLDER = '{{YOUTUBE_EMBED}}';
-const ALERT_EMAIL = 'REDACTED_EMAIL@example.com';
+const ALERT_EMAIL = process.env.APPROVAL_EMAIL || '';
 
 interface YouTubeVideo {
   id: string;

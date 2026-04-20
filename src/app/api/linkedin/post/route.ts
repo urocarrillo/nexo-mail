@@ -3,7 +3,7 @@ import * as Brevo from '@getbrevo/brevo';
 import { publishPost, publishPostWithImage } from '@/lib/linkedin';
 
 const BREVO_API_KEY = process.env.BREVO_API_KEY || '';
-const APPROVAL_EMAIL = 'REDACTED_EMAIL@example.com';
+const APPROVAL_EMAIL = process.env.APPROVAL_EMAIL || '';
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://nexo-mail.vercel.app';
 
 const transacApi = new Brevo.TransactionalEmailsApi();

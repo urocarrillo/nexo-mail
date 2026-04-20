@@ -3,7 +3,7 @@ import * as Brevo from '@getbrevo/brevo';
 import { getAccountHealth, listPosts } from '@/lib/linkedin';
 
 const BREVO_API_KEY = process.env.BREVO_API_KEY || '';
-const REMINDER_EMAIL = 'REDACTED_EMAIL@example.com';
+const REMINDER_EMAIL = process.env.APPROVAL_EMAIL || '';
 
 const transacApi = new Brevo.TransactionalEmailsApi();
 transacApi.setApiKey(

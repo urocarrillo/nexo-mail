@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 
 export const maxDuration = 60;
 
-const WP_USER = 'REDACTED_USER';
+const WP_USER = process.env.WP_USER || '';
 const WP_APP_PASSWORD = process.env.WP_APP_PASSWORD || '';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 const NEWSLETTER_TAG_ID = 125;

@@ -6,7 +6,7 @@ const UMAMI_URL = process.env.UMAMI_API_URL || 'https://umami-urologia.vercel.ap
 const UMAMI_USERNAME = process.env.UMAMI_USERNAME || '';
 const UMAMI_PASSWORD = process.env.UMAMI_PASSWORD || '';
 const UMAMI_WEBSITE_ID = process.env.UMAMI_WEBSITE_ID || '';
-const REPORT_EMAIL = 'REDACTED_EMAIL@example.com';
+const REPORT_EMAIL = process.env.APPROVAL_EMAIL || '';
 
 const transacApi = new Brevo.TransactionalEmailsApi();
 transacApi.setApiKey(

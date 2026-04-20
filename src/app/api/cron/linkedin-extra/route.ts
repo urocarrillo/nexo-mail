@@ -7,6 +7,8 @@ export const maxDuration = 60;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://nexo-mail.vercel.app';
 const TOPIC_INDEX_KEY = 'linkedin_extra:last_topic_index';
+const LAST_RUN_KEY = 'linkedin_extra:last_run_ts';
+const MIN_HOURS_BETWEEN_RUNS = 120; // 5 days — prevents duplicate posts from retries or accidental hits
 
 const TOPICS: Array<{ id: number; title: string; category: string; pattern: string }> = [
   // Behind the scenes — usar patrón A (historia) o B (lista)
@@ -126,13 +128,40 @@ async function sendToApprovalFlow(content: string): Promise<{ ok: boolean; postI
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
+  const apiSecret = process.env.API_SECRET_KEY;
+  const { searchParams } = new URL(request.url);
+  const manualToken = searchParams.get('token');
+  const force = searchParams.get('force') === '1';
 
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  // Accept either Vercel cron Bearer (CRON_SECRET) or manual trigger with API_SECRET_KEY
+  const bearerOk = cronSecret && authHeader === `Bearer ${cronSecret}`;
+  const tokenOk = apiSecret && manualToken === apiSecret;
+  if (!bearerOk && !tokenOk) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   if (!ANTHROPIC_API_KEY) {
     return NextResponse.json({ success: false, error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
+  }
+
+  // Dedupe: skip if last run was within MIN_HOURS_BETWEEN_RUNS
+  if (!force) {
+    try {
+      const lastRun = await kv.get<number>(LAST_RUN_KEY);
+      if (typeof lastRun === 'number') {
+        const hoursSince = (Date.now() - lastRun) / (1000 * 60 * 60);
+        if (hoursSince < MIN_HOURS_BETWEEN_RUNS) {
+          return NextResponse.json({
+            success: false,
+            skipped: true,
+            reason: `Last run was ${hoursSince.toFixed(1)}h ago (min ${MIN_HOURS_BETWEEN_RUNS}h). Use ?force=1 to override.`,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      }
+    } catch (err) {
+      console.error('KV read error for dedupe (proceeding anyway):', err);
+    }
   }
 
   try {
@@ -152,8 +181,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     try {
       await kv.set(TOPIC_INDEX_KEY, newIndex);
+      await kv.set(LAST_RUN_KEY, Date.now());
     } catch (err) {
-      console.error('KV write error (index not saved, will repeat this topic next week):', err);
+      console.error('KV write error (index/timestamp not saved):', err);
     }
 
     return NextResponse.json({

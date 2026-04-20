@@ -154,6 +154,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const profesionalUrl = `${BASE_URL}/api/linkedin/regenerate?postId=${newPostId}&token=${process.env.API_SECRET_KEY}&tone=profesional`;
     const datosUrl = `${BASE_URL}/api/linkedin/regenerate?postId=${newPostId}&token=${process.env.API_SECRET_KEY}&tone=datos`;
     const reformularUrl = `${BASE_URL}/api/linkedin/regenerate?postId=${newPostId}&token=${process.env.API_SECRET_KEY}&tone=reformular`;
+    const customEditUrl = `${BASE_URL}/api/linkedin/custom-edit?postId=${newPostId}&token=${process.env.API_SECRET_KEY}`;
     const rejectUrl = `${BASE_URL}/api/linkedin/reject?postId=${newPostId}&token=${process.env.API_SECRET_KEY}`;
     const editUrl = `${BASE_URL}/api/linkedin/edit?postId=${newPostId}&token=${process.env.API_SECRET_KEY}`;
     const previewContent = content.replace(/\n/g, '<br>');
@@ -175,6 +176,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   <p style="margin:0 0 20px;font-size:14px;color:#666;">Al aprobar se programa para el proximo martes, miercoles o jueves a las 9:00 AM.</p>
   <div style="text-align:center;margin-bottom:16px;">
     <a href="${approveUrl}" style="display:inline-block;background:#0077B5;color:#fff;text-decoration:none;padding:14px 36px;border-radius:30px;font-size:16px;font-weight:700;">Aprobar y programar</a>
+  </div>
+  <div style="text-align:center;margin-bottom:16px;">
+    <a href="${customEditUrl}" style="display:inline-block;background:#6c5ce7;color:#fff;text-decoration:none;padding:12px 28px;border-radius:30px;font-size:14px;font-weight:700;">Modificación puntual</a>
   </div>
   <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;">
   <tr>

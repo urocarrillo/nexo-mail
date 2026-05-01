@@ -4,8 +4,11 @@ import { markAsPurchased } from '@/lib/brevo';
 import { markLeadAsPurchased } from '@/lib/storage';
 import { WooCommerceOrder, WebhookResponse } from '@/lib/types';
 import { getAffiliate, logSale } from '@/lib/sheets-affiliates';
+import { logSesion } from '@/lib/sheets-sesiones';
 import { sendAffiliateSaleNotification } from '@/lib/email-affiliate';
 import { kv } from '@vercel/kv';
+
+const PROGRAMA_DE_PRODUCT_ID = 3740;
 
 function verifyWooCommerceSignature(
   payload: string,
@@ -147,6 +150,17 @@ export async function POST(request: NextRequest): Promise<NextResponse<WebhookRe
 
     // Update lead status in storage
     await markLeadAsPurchased(email, orderId);
+
+    // If buyer purchased Programa DE → log to Sesiones 1-1 sheet
+    if (productIds.includes(PROGRAMA_DE_PRODUCT_ID)) {
+      try {
+        const nombre = `${order.billing.first_name} ${order.billing.last_name}`.trim();
+        const fechaCompra = new Date(order.date_created).toLocaleDateString('es-AR');
+        await logSesion({ nombre, email, fechaCompra });
+      } catch (sesErr) {
+        console.error('Sesiones sheet logging error (non-blocking):', sesErr);
+      }
+    }
 
     // Check for affiliate referrer (order meta from WP hook, OR KV from checkout JS pixel)
     const referrerMeta = order.meta_data.find((m) => m.key === '_referrer');

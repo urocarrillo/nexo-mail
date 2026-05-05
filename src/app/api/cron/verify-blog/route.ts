@@ -246,8 +246,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // 2. Extract video ID and fetch transcript
     const videoId = extractVideoId(rawContent);
     if (!videoId) {
-      // No video embed found — publish without verification
-      console.log(`No video ID found in draft ${draft.id}, publishing without verification`);
+      // SAFETY: if the draft still has the {{YOUTUBE_EMBED}} placeholder, NEVER publish.
+      // weekly-blog will publish it once the YouTube video is live.
+      if (rawContent.includes('{{YOUTUBE_EMBED}}')) {
+        console.log(`Draft ${draft.id} still has {{YOUTUBE_EMBED}} placeholder — skipping verify-blog`);
+        return NextResponse.json({
+          success: true,
+          skipped: true,
+          postId: draft.id,
+          postTitle: title,
+          reason: 'Draft has {{YOUTUBE_EMBED}} placeholder — waiting for weekly-blog to publish it with real video',
+        });
+      }
+      // No placeholder AND no video embed — publish without verification
+      console.log(`No video ID found in draft ${draft.id} (no placeholder either), publishing without verification`);
       await fetch(`https://urologia.ar/wp-json/wp/v2/posts/${draft.id}`, {
         method: 'PUT',
         headers: {

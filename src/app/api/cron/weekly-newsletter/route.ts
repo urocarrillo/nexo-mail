@@ -235,6 +235,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const title = stripHtml(post.title.rendered);
     const url = post.link || `https://urologia.ar/${post.slug}/`;
 
+    // SAFETY: post must contain a real YouTube embed before we send the newsletter.
+    // If it has the {{YOUTUBE_EMBED}} placeholder, or no iframe at all, the post was
+    // published broken — skip and do not send.
+    const renderedContent = post.content?.rendered || '';
+    if (renderedContent.includes('{{YOUTUBE_EMBED}}') || !/youtube\.com\/embed\//.test(renderedContent)) {
+      console.warn(`Newsletter SKIPPED for post ${post.id} "${title}" — no YouTube embed (placeholder or missing)`);
+      return NextResponse.json({
+        success: true,
+        skipped: true,
+        reason: 'Post has no YouTube embed — refusing to send newsletter for a broken post',
+        postId: post.id,
+        postTitle: title,
+      });
+    }
+
     // 2. Check duplicate (skip with ?force=true)
     const force = request.nextUrl.searchParams.get('force') === 'true';
     if (!force) {

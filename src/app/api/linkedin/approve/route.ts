@@ -137,26 +137,73 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const scheduledFor = await getNextOptimalSlot();
 
-    // Schedule the draft post via Zernio PUT
-    const res = await fetch(`${ZERNIO_BASE_URL}/posts/${postId}`, {
-      method: 'PUT',
+    // Zernio bug: PUT { scheduledFor } updates root but NOT platforms[].scheduledFor,
+    // and status stays 'draft' so the post never publishes.
+    // Workaround: GET draft → POST new post with scheduledFor → DELETE old draft.
+    const getRes = await fetch(`${ZERNIO_BASE_URL}/posts/${postId}`, {
+      headers: { 'Authorization': `Bearer ${ZERNIO_API_KEY}` },
+    });
+    if (!getRes.ok) {
+      const text = await getRes.text();
+      console.error(`Zernio GET error: ${getRes.status} ${text}`);
+      return new NextResponse(
+        buildErrorPage(`No se pudo leer el draft (${getRes.status}). Puede que ya haya sido aprobado.`),
+        { status: 502, headers: { 'Content-Type': 'text/html' } }
+      );
+    }
+    const getJson = await getRes.json();
+    const draft = getJson.post || getJson;
+    const content: string | undefined = draft.content;
+    const platforms = draft.platforms || [];
+    const accountId: string | undefined =
+      typeof platforms[0]?.accountId === 'string'
+        ? platforms[0].accountId
+        : platforms[0]?.accountId?._id;
+    const firstComment: string | undefined =
+      platforms[0]?.platformSpecificData?.firstComment;
+
+    if (!content || !accountId) {
+      return new NextResponse(
+        buildErrorPage('El draft no tiene contenido o cuenta válidos.'),
+        { status: 502, headers: { 'Content-Type': 'text/html' } }
+      );
+    }
+
+    const createBody: Record<string, unknown> = {
+      content,
+      platforms: [{ platform: 'linkedin', accountId }],
+      scheduledFor,
+      timezone: 'America/Argentina/Mendoza',
+    };
+    if (firstComment) {
+      createBody.platformSpecificData = { linkedin: { firstComment } };
+    }
+
+    const createRes = await fetch(`${ZERNIO_BASE_URL}/posts`, {
+      method: 'POST',
       headers: {
         'Authorization': `Bearer ${ZERNIO_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        scheduledFor,
-        timezone: 'America/Argentina/Mendoza',
-      }),
+      body: JSON.stringify(createBody),
     });
-
-    if (!res.ok) {
-      const text = await res.text();
-      console.error(`Zernio schedule error: ${res.status} ${text}`);
+    if (!createRes.ok) {
+      const text = await createRes.text();
+      console.error(`Zernio POST error: ${createRes.status} ${text}`);
       return new NextResponse(
-        buildErrorPage(`No se pudo programar el post (${res.status}). Puede que ya haya sido aprobado anteriormente.`),
+        buildErrorPage(`No se pudo programar el post (${createRes.status}).`),
         { status: 502, headers: { 'Content-Type': 'text/html' } }
       );
+    }
+
+    // Delete old draft. If it fails, log but don't fail the approval —
+    // the new scheduled post already exists and will publish.
+    const delRes = await fetch(`${ZERNIO_BASE_URL}/posts/${postId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${ZERNIO_API_KEY}` },
+    });
+    if (!delRes.ok) {
+      console.error(`Zernio DELETE old draft failed: ${delRes.status} ${await delRes.text()}`);
     }
 
     console.log(`LinkedIn post approved and scheduled: ${postId} → ${scheduledFor}`);

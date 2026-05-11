@@ -34,6 +34,12 @@
     "src/app/api/cron/linkedin-extra/route.ts": {
       "maxDuration": 60
     },
+    "src/app/api/cron/bs-weekly-interview/route.ts": {
+      "maxDuration": 30
+    },
+    "src/app/api/bs/submit/route.ts": {
+      "maxDuration": 60
+    },
     "src/app/api/cron/weekly-analytics/route.ts": {
       "maxDuration": 15
     }
@@ -82,6 +88,10 @@
     {
       "path": "/api/cron/linkedin-extra",
       "schedule": "0 13 * * 0"
+    },
+    {
+      "path": "/api/cron/bs-weekly-interview",
+      "schedule": "0 14 * * 1"
     }
   ]
 }

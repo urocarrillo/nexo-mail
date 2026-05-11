@@ -53,6 +53,11 @@ ${topic.category === 'soluciones_empresas' ? 'AUDIENCIA: equipos de marketing y 
 Aplicá TODAS las reglas del system prompt, corré el checklist auto-review mentalmente y devolvé SOLO el post final.`;
 }
 
+// Only rotate through soluciones_empresas topics here.
+// behind_scenes topics are handled by the bs-weekly-interview cron (mini-entrevista)
+// to avoid inventing personal process data.
+const ROTATION_TOPICS = TOPICS.filter((t) => t.category === 'soluciones_empresas');
+
 async function selectNextTopic(): Promise<{ topic: typeof TOPICS[0]; newIndex: number }> {
   let lastIndex = -1;
   try {
@@ -62,8 +67,8 @@ async function selectNextTopic(): Promise<{ topic: typeof TOPICS[0]; newIndex: n
     console.error('KV read error (falling back to 0):', err);
   }
 
-  const newIndex = (lastIndex + 1) % TOPICS.length;
-  return { topic: TOPICS[newIndex], newIndex };
+  const newIndex = (lastIndex + 1) % ROTATION_TOPICS.length;
+  return { topic: ROTATION_TOPICS[newIndex], newIndex };
 }
 
 async function generatePost(topic: typeof TOPICS[0]): Promise<string> {

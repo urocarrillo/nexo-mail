@@ -42,6 +42,9 @@
     },
     "src/app/api/cron/weekly-analytics/route.ts": {
       "maxDuration": 15
+    },
+    "src/app/api/cron/programa-followups/route.ts": {
+      "maxDuration": 30
     }
   },
   "crons": [
@@ -92,6 +95,10 @@
     {
       "path": "/api/cron/bs-weekly-interview",
       "schedule": "0 14 * * 1"
+    },
+    {
+      "path": "/api/cron/programa-followups",
+      "schedule": "0 11 * * 3"
     }
   ]
 }

@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const POSTEST_LIST_ID = 24; // "PROGRAMA Control Mental" en Brevo
 const SENDER = { name: 'Mauro Carrillo', email: 'mauro@urologia.ar' };
-const LANDING_BASE = 'https://urologia.ar/recuperatuereccion';
-const UTM_BASE = 'utm_source=email&utm_medium=postest&utm_campaign=cohorte2-lanzamiento';
+const LANDING = 'https://urologia.ar/recuperatuereccion';
 
 type Tier = 'A' | 'B' | 'C';
 
@@ -59,14 +58,13 @@ function firstName(name?: string): string {
 
 function buildMailA(name: string): { subject: string; text: string } {
   const greeting = name ? `Hola ${name},` : 'Hola,';
-  const link = `${LANDING_BASE}?${UTM_BASE}&utm_content=email-tier-a`;
   return {
     subject: 'Buenas noticias, el programa es para vos',
     text:
       `${greeting}\n\n` +
       `Vi tus respuestas del test. Por lo que contás, el programa es para vos.\n\n` +
       `Te dejo el link para que lo mires con calma:\n\n` +
-      `${link}\n\n` +
+      `${LANDING}\n\n` +
       `Tomate el tiempo que necesites. Si después de leer te queda alguna duda puntual, me respondés este mismo mail y lo conversamos.\n\n` +
       `Abrazo,\n` +
       `Mauro\n`,
@@ -75,7 +73,6 @@ function buildMailA(name: string): { subject: string; text: string } {
 
 function buildMailB(name: string): { subject: string; text: string } {
   const greeting = name ? `Hola ${name},` : 'Hola,';
-  const link = `${LANDING_BASE}?${UTM_BASE}&utm_content=email-tier-b`;
   return {
     subject: 'Espero poder ayudarte',
     text:
@@ -83,7 +80,7 @@ function buildMailB(name: string): { subject: string; text: string } {
       `Te cuento que ya recibí el resultado del test.\n\n` +
       `Por lo que contás, el programa puede ayudarte con tu situación.\n\n` +
       `Te dejo el link para que lo veas tranquilo y decidas:\n\n` +
-      `${link}\n\n` +
+      `${LANDING}\n\n` +
       `Si te interesa saber más respecto al programa, respondé este correo y lo vemos.\n\n` +
       `Abrazo,\n` +
       `Mauro\n`,

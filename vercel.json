@@ -1,17 +1,31 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "regions": ["iad1"],
+  "regions": [
+    "iad1"
+  ],
   "rewrites": [
-    { "source": "/link", "destination": "/link.html" },
-    { "source": "/", "has": [{ "type": "host", "value": "link.urologia.ar" }], "destination": "/link" }
+    {
+      "source": "/link",
+      "destination": "/link.html"
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "link.urologia.ar"
+        }
+      ],
+      "destination": "/link"
+    }
   ],
   "functions": {
     "src/app/api/**/*.ts": {
       "maxDuration": 10
     },
     "src/app/api/cron/send-emails/route.ts": {
-      "maxDuration": 60
+      "maxDuration": 300
     },
     "src/app/api/admin/enroll-stock/route.ts": {
       "maxDuration": 60

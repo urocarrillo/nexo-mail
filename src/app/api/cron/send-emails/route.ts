@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { processDripQueue } from '@/lib/email-drip';
 
+export const maxDuration = 300;
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   // Verify cron secret (Vercel sets this header for cron jobs)
   const authHeader = request.headers.get('authorization');

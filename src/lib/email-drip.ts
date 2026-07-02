@@ -139,6 +139,32 @@ export function buildUnsubscribeUrl(email: string): string {
   return `${base}/api/unsubscribe?e=${encodeURIComponent(e)}&t=${t}`;
 }
 
+/**
+ * Convierte el texto plano del mail a HTML mínimo indistinguible del plain
+ * (Arial 15px, sin branding) + pie de baja chiquito y separado.
+ */
+export function plainToHtml(text: string, unsubUrl: string): string {
+  const esc = (t: string) =>
+    t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const linkify = (t: string) =>
+    t.replace(
+      /(https?:\/\/[^\s]+)/g,
+      '<a href="$1" style="color:#0b57d0">$1</a>'
+    );
+  const paras = text
+    .trim()
+    .split(/\n\n+/)
+    .map(
+      (par) =>
+        `<p style="margin:0 0 16px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#313131">${linkify(esc(par)).replace(/\n/g, '<br>')}</p>`
+    )
+    .join('');
+  const footer = unsubUrl
+    ? `<p style="margin:44px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.5;color:#a8a8a8">Si no quer\u00e9s recibir m\u00e1s estos mails, <a href="${unsubUrl}" style="color:#a8a8a8">date de baja ac\u00e1</a>.</p>`
+    : '';
+  return `<div style="max-width:600px">${paras}${footer}</div>`;
+}
+
 export async function sendPlainSecuencia(
   email: string,
   name: string | undefined,
@@ -156,7 +182,10 @@ export async function sendPlainSecuencia(
     to: [{ email, name: name || undefined }],
     replyTo: { email: SECUENCIA_SENDER.email },
     subject,
-    textContent: text,
+    textContent: unsubUrl
+      ? `${text}\n\n--\nSi no quer\u00e9s recibir m\u00e1s estos mails, date de baja ac\u00e1: ${unsubUrl}`
+      : text,
+    htmlContent: plainToHtml(text, unsubUrl),
     headers: unsubUrl
       ? {
           'List-Unsubscribe': `<${unsubUrl}>, <mailto:${SECUENCIA_SENDER.email}?subject=baja>`,

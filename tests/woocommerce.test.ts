@@ -10,12 +10,24 @@ jest.mock('@/lib/storage', () => ({
   markLeadAsPurchased: jest.fn(),
 }));
 
+// filtro-cliente deps (IO) mocked out — el webhook las llama best-effort.
+jest.mock('@/lib/crm-sheet', () => ({
+  markClienteInCRM: jest.fn(),
+}));
+jest.mock('@/lib/email-drip', () => ({
+  cancelDripForEmail: jest.fn(),
+}));
+
 import { GET, POST, HEAD } from '@/app/api/webhook/woocommerce/route';
 import { markAsPurchased } from '@/lib/brevo';
 import { markLeadAsPurchased } from '@/lib/storage';
+import { markClienteInCRM } from '@/lib/crm-sheet';
+import { cancelDripForEmail } from '@/lib/email-drip';
 
 const mockedMarkAsPurchased = markAsPurchased as jest.MockedFunction<typeof markAsPurchased>;
 const mockedMarkLeadAsPurchased = markLeadAsPurchased as jest.MockedFunction<typeof markLeadAsPurchased>;
+const mockedMarkClienteInCRM = markClienteInCRM as jest.MockedFunction<typeof markClienteInCRM>;
+const mockedCancelDrip = cancelDripForEmail as jest.MockedFunction<typeof cancelDripForEmail>;
 
 function generateSignature(payload: string, secret: string): string {
   return crypto
@@ -45,6 +57,8 @@ describe('WooCommerce Webhook API', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.WOOCOMMERCE_WEBHOOK_SECRET = 'test-woo-secret';
+    mockedMarkClienteInCRM.mockResolvedValue({ found: false });
+    mockedCancelDrip.mockResolvedValue({ cancelled: 0 });
   });
 
   describe('HEAD /api/webhook/woocommerce', () => {
@@ -136,7 +150,9 @@ describe('WooCommerce Webhook API', () => {
       expect(data.message).toContain('12345');
       expect(mockedMarkAsPurchased).toHaveBeenCalledWith(
         'customer@example.com',
-        '12345'
+        '12345',
+        [1],
+        { productos: 'producto-1', fechaCompra: '2024-01-15T10:30:00' }
       );
       expect(mockedMarkLeadAsPurchased).toHaveBeenCalledWith(
         'customer@example.com',

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getClienteInfo, clienteCellText, type EstadoCliente } from '@/lib/clientes';
 import { markClienteInCRM } from '@/lib/crm-sheet';
+import { enrollSecuencia, getEnrolledSecuenciaEmails } from '@/lib/email-drip';
+import { buildSecuenciaMail, computeSequenceDates } from '@/lib/secuencia-post-typeform';
 
 const POSTEST_LIST_ID = 24; // "PROGRAMA Control Mental" en Brevo
 const SENDER = { name: 'Mauro Carrillo', email: 'mauro@urologia.ar' };
@@ -56,21 +58,6 @@ function parsePayload(data: unknown): { ok: true; payload: TypeformPayload } | {
 function firstName(name?: string): string {
   if (!name) return '';
   return name.trim().split(/\s+/)[0] || '';
-}
-
-function buildMailA(name: string): { subject: string; text: string } {
-  const greeting = name ? `Hola ${name},` : 'Hola,';
-  return {
-    subject: 'Buenas noticias, el programa es para vos',
-    text:
-      `${greeting}\n\n` +
-      `Vi tus respuestas del test. Por lo que contás, el programa es para vos.\n\n` +
-      `Te dejo el link para que lo mires con calma:\n\n` +
-      `${LANDING}\n\n` +
-      `Tomate el tiempo que necesites. Si después de leer te queda alguna duda puntual, me respondés este mismo mail y lo conversamos.\n\n` +
-      `Abrazo,\n` +
-      `Mauro\n`,
-  };
 }
 
 function buildMailB(name: string): { subject: string; text: string } {
@@ -225,7 +212,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const name = firstName(payload.name);
-  const mail = payload.tier === 'A' ? buildMailA(name) : buildMailB(name);
+  // Tier A → M0 de la secuencia post-Typeform ("Buenas noticias"). Tier B → mail actual.
+  const mail = payload.tier === 'A' ? buildSecuenciaMail(0, name) : buildMailB(name);
 
   const contactResult = await brevoCreateOrUpdateContact(payload);
   if (!contactResult.ok) {
@@ -243,10 +231,32 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
+  // Enrolamiento en la secuencia (M1..M8): SOLO tier A que sea lead puro.
+  // Los cliente-otro reciben el M0 (venta con reconocimiento) pero no se enrolan:
+  // el re-chequeo esCliente() los cancelaría en el primer envío.
+  let enrolled = false;
+  if (payload.tier === 'A' && estado === 'lead') {
+    try {
+      const already = await getEnrolledSecuenciaEmails();
+      const dates = computeSequenceDates(new Date());
+      const r = await enrollSecuencia({
+        email: payload.email,
+        name,
+        variant: 'A', // lead nuevo → siempre M1A
+        dates,
+        alreadyEnrolled: already,
+      });
+      enrolled = r.scheduled > 0;
+    } catch (err) {
+      console.error('Typeform enroll secuencia error (non-blocking):', err);
+    }
+  }
+
   return NextResponse.json({
     success: true,
     tier: payload.tier,
     pantalla: payload.pantalla,
     messageId: sendResult.messageId,
+    enrolled,
   });
 }

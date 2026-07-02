@@ -335,7 +335,7 @@ function firstSundayAfter(day: Date): Date {
  * Dado M1 (un "día ART"), calcula M1..M8 según la cadencia del spec:
  *   M2 = primer domingo después de M1
  *   M3 = M2 + 2 días (martes)
- *   M4 = M3 + 3 días (viernes)   [spec: +2-3, elegimos 3]
+ *   M4 = M3 + 3 días (viernes)   (spec dice +2-3; elegimos 3)
  *   M5 = M4 + 3 días (lunes)
  *   M6 = primer domingo después de M5 (segundo domingo)
  *   M7 = M6 + 2 días (martes)
@@ -405,8 +405,8 @@ export function m1VariantForAge(testDate: Date | null, now: Date): MailVariant {
 }
 
 /**
- * Parsea la fecha del test del Sheet. Tolera dd/mm/yyyy [hh:mm[:ss]] (locale
- * es-AR de Google Sheets, interpretado como hora ART) y formatos ISO. Devuelve
+ * Parsea la fecha del test del Sheet. Tolera dd/mm/yyyy con hora opcional
+ * (locale es-AR de Google Sheets, interpretado como hora ART) y formatos ISO. Devuelve
  * null si no se puede parsear (→ variante B por defecto).
  */
 export function parseArgDate(raw: string): Date | null {

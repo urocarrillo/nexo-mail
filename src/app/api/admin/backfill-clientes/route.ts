@@ -13,6 +13,8 @@
  *   GET /api/admin/backfill-clientes?token=XXX&dry=0    → ejecución real
  */
 import { NextRequest, NextResponse } from 'next/server';
+
+export const maxDuration = 60;
 import {
   getClientes,
   clienteCellText,

@@ -13,6 +13,8 @@
  * Auth: CRON_SECRET (header Authorization: Bearer …), igual que los otros crons.
  */
 import { NextRequest, NextResponse } from 'next/server';
+
+export const maxDuration = 60;
 import {
   getClientes,
   fetchWooOrders,

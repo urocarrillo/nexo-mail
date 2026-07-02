@@ -135,7 +135,8 @@ function mail1A(name: string): SecuenciaMail {
       `Te pregunto porque en tus respuestas hay algo que vale la pena mirar de nuevo: en solitario funcionás bien. Pensá un segundo lo que eso significa. Tu cuerpo está sano. Lo que se enciende cuando estás con otra persona es un circuito que se aprendió — y todo lo que se aprende se puede entrenar.\n\n` +
       `Si ya lo viste y te quedó alguna pregunta, contestame este mail. Las leo todas.\n\n` +
       `Abrazo,\n` +
-      `Mauro\n`,
+      `Mauro\n\n` +
+      `PD: si preferís que no te escriba más, respondeme "baja" y listo.\n`,
   };
 }
 
@@ -148,7 +149,8 @@ function mail1B(name: string): SecuenciaMail {
       `Antes de que contestes, mirá de nuevo un dato tuyo: en el test me contaste que en solitario funcionás bien. Pensá lo que eso significa. Tu cuerpo está sano. Lo que se enciende cuando estás con otra persona es un circuito que se aprendió — y todo lo que se aprende se puede entrenar.\n\n` +
       `Si te quedó alguna pregunta, contestame este mail. Las leo todas.\n\n` +
       `Abrazo,\n` +
-      `Mauro\n`,
+      `Mauro\n\n` +
+      `PD: si preferís que no te escriba más, respondeme "baja" y listo.\n`,
   };
 }
 

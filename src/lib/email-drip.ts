@@ -1,4 +1,5 @@
 import { kv } from '@vercel/kv';
+import { createHmac } from 'crypto';
 import * as Brevo from '@getbrevo/brevo';
 import { LeadTag } from './types';
 import { esCliente, getClientes, type ClientesMap } from './clientes';
@@ -128,6 +129,16 @@ async function sendTemplate(
  * y reply-to mauro@, sólo textContent → Brevo no reescribe los links, así el
  * click tracking queda OFF y los ?m=sqN llegan intactos.
  */
+/** URL firmada de baja (HMAC con API_SECRET_KEY). '' si falta el secret. */
+export function buildUnsubscribeUrl(email: string): string {
+  const secret = process.env.API_SECRET_KEY;
+  if (!secret) return '';
+  const e = email.toLowerCase().trim();
+  const t = createHmac('sha256', secret).update(e).digest('hex').slice(0, 32);
+  const base = process.env.PUBLIC_BASE_URL || 'https://nexo-mail.vercel.app';
+  return `${base}/api/unsubscribe?e=${encodeURIComponent(e)}&t=${t}`;
+}
+
 export async function sendPlainSecuencia(
   email: string,
   name: string | undefined,
@@ -137,12 +148,21 @@ export async function sendPlainSecuencia(
   const apiKey = process.env.BREVO_API_KEY;
   if (!apiKey) return { success: false, error: 'BREVO_API_KEY missing' };
 
+  // Header de baja invisible: el cuerpo queda humano, Gmail/Outlook muestran
+  // su propio "darse de baja" y el click corta la secuencia (blacklist Brevo).
+  const unsubUrl = buildUnsubscribeUrl(email);
   const body = {
     sender: SECUENCIA_SENDER,
     to: [{ email, name: name || undefined }],
     replyTo: { email: SECUENCIA_SENDER.email },
     subject,
     textContent: text,
+    headers: unsubUrl
+      ? {
+          'List-Unsubscribe': `<${unsubUrl}>, <mailto:${SECUENCIA_SENDER.email}?subject=baja>`,
+          'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+        }
+      : undefined,
   };
 
   try {

@@ -13,6 +13,22 @@ export async function logSesion(data: {
   }
 
   const token = await getGoogleAccessToken();
+
+  // Dedupe: una fila por paciente. Si el email ya está en la columna B, no
+  // volver a agregarlo (order.updated puede reintentar la misma orden).
+  const checkRange = encodeURIComponent(`${TAB_NAME}!B:B`);
+  const checkRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${checkRange}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (checkRes.ok) {
+    const existing: string[] = ((await checkRes.json()).values ?? []).flat();
+    const target = data.email.toLowerCase().trim();
+    if (existing.some((e) => (e || '').toLowerCase().trim() === target)) {
+      return;
+    }
+  }
+
   const range = encodeURIComponent(`${TAB_NAME}!A:D`);
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
 

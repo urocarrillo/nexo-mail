@@ -150,6 +150,18 @@ export async function POST(request: NextRequest): Promise<NextResponse<WebhookRe
   const email = order.billing.email.toLowerCase().trim();
   const orderId = order.id.toString();
 
+  // Idempotencia: WP dispara order.updated varias veces por orden completada
+  // (pago MP, enrolamiento LearnDash, notas). Procesar una sola vez por orden.
+  const processedKey = `wc-processed:${orderId}`;
+  try {
+    if (await kv.get(processedKey)) {
+      return NextResponse.json({
+        success: true,
+        message: `Order ${orderId} already processed, skipping duplicate delivery`,
+      });
+    }
+  } catch { /* KV no disponible: seguir (logSesion tiene su propio dedupe) */ }
+
   try {
     // Extract product IDs for buyer-list assignment (cross-sell)
     const productIds = order.line_items.map(item => item.product_id);
@@ -250,6 +262,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<WebhookRe
         console.error('Affiliate tracking error (non-blocking):', affErr);
       }
     }
+
+    try {
+      await kv.set(processedKey, Date.now(), { ex: 60 * 60 * 24 * 90 });
+    } catch { /* best-effort */ }
 
     if (brevoResult.success) {
       return NextResponse.json({

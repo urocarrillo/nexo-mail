@@ -85,10 +85,21 @@ export function findNombreColumn(headers: string[]): number {
   return headers.findIndex((h) => /nombre|name/i.test(h || ''));
 }
 
-/** Columna de fecha del test. Prefiere "Marca temporal"/timestamp/fecha; fallback col A (0). */
+/**
+ * Columna de fecha del test. Prioridad: "Submitted At" (Typeform) > marca
+ * temporal/timestamp > fecha/date genérico. Nunca "Fecha primer contacto"
+ * (columna de gestión, casi vacía — elegirla clasifica mal la edad del lead).
+ * Fallback col A (0).
+ */
 export function findFechaColumn(headers: string[]): number {
-  const idx = headers.findIndex((h) => /marca temporal|timestamp|fecha|date/i.test(h || ''));
-  return idx >= 0 ? idx : 0;
+  const prioridad = [/submitted at/i, /marca temporal|timestamp/i, /fecha|date/i];
+  for (const re of prioridad) {
+    const idx = headers.findIndex(
+      (h) => re.test(h || '') && !/contacto/i.test(h || '')
+    );
+    if (idx >= 0) return idx;
+  }
+  return 0;
 }
 
 /** Columna de la secuencia post-Typeform ("Secuencia"), o -1 si no existe. */

@@ -57,9 +57,10 @@ interface ScheduledEmail {
   templateId: number;
   subject: string;
   sendAt: string; // ISO date
-  status: 'pending' | 'sent' | 'failed';
+  status: 'pending' | 'sent' | 'failed' | 'cancelled';
   createdAt: string;
   sentAt?: string;
+  cancelledAt?: string;
   error?: string;
 }
 
@@ -224,6 +225,36 @@ export async function processDripQueue(): Promise<{
   }
 
   return { processed, sent, failed, remaining };
+}
+
+/**
+ * Cancela (exit-on-purchase) todos los mails pendientes de un email en la cola.
+ * Los marca 'cancelled' en vez de borrarlos, para dejar rastro auditable.
+ * Llamado por el webhook WooCommerce cuando la persona compra.
+ */
+export async function cancelDripForEmail(
+  email: string
+): Promise<{ cancelled: number }> {
+  const target = email.trim().toLowerCase();
+  const allEntries = await kv.hgetall<Record<string, string>>(DRIP_QUEUE_KEY);
+  if (!allEntries) return { cancelled: 0 };
+
+  const now = new Date().toISOString();
+  let cancelled = 0;
+
+  for (const [id, json] of Object.entries(allEntries)) {
+    const entry: ScheduledEmail = typeof json === 'string' ? JSON.parse(json) : json;
+    if (entry.status !== 'pending') continue;
+    if (entry.email.trim().toLowerCase() !== target) continue;
+
+    entry.status = 'cancelled';
+    entry.cancelledAt = now;
+    await kv.hset(DRIP_QUEUE_KEY, { [id]: JSON.stringify(entry) });
+    cancelled++;
+    console.log(`Drip cancelled (compra): ${entry.subject} → ${entry.email}`);
+  }
+
+  return { cancelled };
 }
 
 /**

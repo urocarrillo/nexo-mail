@@ -11,6 +11,12 @@
       "maxDuration": 10
     },
     "src/app/api/cron/send-emails/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/admin/enroll-stock/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/admin/test-secuencia/route.ts": {
       "maxDuration": 30
     },
     "src/app/api/cron/weekly-newsletter/route.ts": {

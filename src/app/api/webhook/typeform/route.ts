@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getClienteInfo, clienteCellText, type EstadoCliente } from '@/lib/clientes';
+import { markClienteInCRM } from '@/lib/crm-sheet';
 
 const POSTEST_LIST_ID = 24; // "PROGRAMA Control Mental" en Brevo
 const SENDER = { name: 'Mauro Carrillo', email: 'mauro@urologia.ar' };
@@ -189,6 +191,37 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       reason: 'tier C does not receive post-test email',
       pantalla: payload.pantalla,
     });
+  }
+
+  // Filtro "¿ya es cliente?" (PRD-filtro-cliente / T8). Fuente: WooCommerce.
+  // Fail-open: si la consulta falla, seguimos el flujo normal (no bloquear leads).
+  let estado: EstadoCliente = 'lead';
+  try {
+    const info = await getClienteInfo(payload.email);
+    estado = info?.estado || 'lead';
+
+    if (estado === 'cliente-programa') {
+      // Ya es alumno del programa → NO mail de venta. El mail "ya sos alumno"
+      // queda para otra tarea; por ahora skip con log.
+      console.log(`Typeform: ${payload.email} es cliente-programa, skip mail de venta`);
+      return NextResponse.json({
+        success: true,
+        skipped: true,
+        reason: 'cliente-programa',
+        pantalla: payload.pantalla,
+      });
+    }
+
+    if (estado === 'cliente-otro' && info) {
+      // Compró otro producto → mail de venta normal + marcar el Sheet CRM.
+      try {
+        await markClienteInCRM(payload.email, clienteCellText(info));
+      } catch (crmErr) {
+        console.error('Typeform CRM marking (cliente-otro) error (non-blocking):', crmErr);
+      }
+    }
+  } catch (err) {
+    console.error('Typeform estadoCliente check failed (fail-open a flujo normal):', err);
   }
 
   const name = firstName(payload.name);

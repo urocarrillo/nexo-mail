@@ -6,6 +6,15 @@ import { WooCommerceOrder, WebhookResponse } from '@/lib/types';
 import { getAffiliate, logSale } from '@/lib/sheets-affiliates';
 import { logSesion } from '@/lib/sheets-sesiones';
 import { sendAffiliateSaleNotification } from '@/lib/email-affiliate';
+import { markClienteInCRM } from '@/lib/crm-sheet';
+import { cancelDripForEmail } from '@/lib/email-drip';
+import {
+  clienteCellText,
+  productosText,
+  invalidateClientesCache,
+  type ClienteInfo,
+  type EstadoCliente,
+} from '@/lib/clientes';
 import { kv } from '@vercel/kv';
 
 const PROGRAMA_DE_PRODUCT_ID = 3740;
@@ -145,11 +154,48 @@ export async function POST(request: NextRequest): Promise<NextResponse<WebhookRe
     // Extract product IDs for buyer-list assignment (cross-sell)
     const productIds = order.line_items.map(item => item.product_id);
 
-    // Mark as purchased in Brevo (adds to list #18 + product-specific buyer lists)
-    const brevoResult = await markAsPurchased(email, orderId, productIds);
+    // Estado de cliente derivado de esta orden (filtro-cliente / T8).
+    const clienteInfo: ClienteInfo = {
+      estado: (productIds.includes(PROGRAMA_DE_PRODUCT_ID)
+        ? 'cliente-programa'
+        : 'cliente-otro') as EstadoCliente,
+      productos: productIds,
+      fechaUltimaCompra: order.date_created,
+    };
+    const productos = productosText(clienteInfo);
+    const fechaCompra = order.date_created;
+    const clienteText = clienteCellText(clienteInfo);
+
+    // Mark as purchased in Brevo (adds to list #18 + product-specific buyer lists
+    // + lista Compradores 3740 si aplica) con atributos PRODUCTOS / FECHA_COMPRA.
+    const brevoResult = await markAsPurchased(email, orderId, productIds, {
+      productos,
+      fechaCompra,
+    });
 
     // Update lead status in storage
     await markLeadAsPurchased(email, orderId);
+
+    // Marcar la columna Cliente + Estado "COMPRÓ" en el Sheet CRM (best-effort).
+    try {
+      const crmResult = await markClienteInCRM(email, clienteText);
+      if (!crmResult.found) {
+        console.log(`CRM: ${email} no está en el Sheet, no se marcó (esperado para compras directas)`);
+      }
+    } catch (crmErr) {
+      console.error('CRM sheet marking error (non-blocking):', crmErr);
+    }
+
+    // Exit-on-purchase: cancelar mails pendientes del drip para este email.
+    try {
+      const { cancelled } = await cancelDripForEmail(email);
+      if (cancelled > 0) console.log(`Drip: ${cancelled} mail(s) cancelado(s) para ${email} (compra)`);
+    } catch (dripErr) {
+      console.error('Drip cancel error (non-blocking):', dripErr);
+    }
+
+    // Invalidar la cache del mapa de clientes para que la compra se refleje ya.
+    await invalidateClientesCache();
 
     // If buyer purchased Programa DE → log to Sesiones 1-1 sheet
     if (productIds.includes(PROGRAMA_DE_PRODUCT_ID)) {

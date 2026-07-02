@@ -48,6 +48,12 @@
     },
     "src/app/api/cron/cohorte2-day8-reminder/route.ts": {
       "maxDuration": 10
+    },
+    "src/app/api/cron/reconciliar-clientes/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/admin/backfill-clientes/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
@@ -106,6 +112,10 @@
     {
       "path": "/api/cron/cohorte2-day8-reminder",
       "schedule": "0 11 8 6 *"
+    },
+    {
+      "path": "/api/cron/reconciliar-clientes",
+      "schedule": "0 9 * * *"
     }
   ]
 }

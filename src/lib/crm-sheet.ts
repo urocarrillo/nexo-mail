@@ -77,6 +77,25 @@ export function findEstadoColumn(headers: string[]): number {
   return headers.findIndex((h) => /estado/i.test(h || ''));
 }
 
+export function findPantallaColumn(headers: string[]): number {
+  return headers.findIndex((h) => /pantalla/i.test(h || ''));
+}
+
+export function findNombreColumn(headers: string[]): number {
+  return headers.findIndex((h) => /nombre|name/i.test(h || ''));
+}
+
+/** Columna de fecha del test. Prefiere "Marca temporal"/timestamp/fecha; fallback col A (0). */
+export function findFechaColumn(headers: string[]): number {
+  const idx = headers.findIndex((h) => /marca temporal|timestamp|fecha|date/i.test(h || ''));
+  return idx >= 0 ? idx : 0;
+}
+
+/** Columna de la secuencia post-Typeform ("Secuencia"), o -1 si no existe. */
+export function findSecuenciaColumn(headers: string[]): number {
+  return headers.findIndex((h) => (h || '').trim().toLowerCase() === 'secuencia');
+}
+
 /** Primera columna con header vacío a partir de `from` (0-based). */
 export function firstFreeColumnAfter(headers: string[], from: number = AF_INDEX): number {
   let i = from;
@@ -90,6 +109,10 @@ export interface CrmRow {
   rowIndex: number; // 1-based
   email: string; // normalizado
   cliente: string; // valor actual de la columna Cliente ('' si no existe/está vacía)
+  estado: string; // valor actual de "Estado seguimiento" ('' si no existe/está vacía)
+  pantalla: string; // valor actual de "Pantalla" ('' si no existe)
+  fecha: string; // valor crudo de la columna de fecha del test ('' si no existe)
+  nombre: string; // valor de la columna Nombre ('' si no existe)
 }
 
 export interface CrmSnapshot {
@@ -98,6 +121,11 @@ export interface CrmSnapshot {
   clienteCol: number; // 0-based — columna destino (existente o a crear)
   clienteColExists: boolean;
   estadoCol: number; // 0-based, -1 si no se encuentra
+  pantallaCol: number; // 0-based, -1 si no se encuentra
+  nombreCol: number; // 0-based, -1 si no se encuentra
+  fechaCol: number; // 0-based (findFechaColumn tiene fallback a 0)
+  secuenciaCol: number; // 0-based — columna destino de la secuencia (existente o a crear)
+  secuenciaColExists: boolean;
   rows: CrmRow[];
 }
 
@@ -113,8 +141,33 @@ export async function readCrmSheet(): Promise<CrmSnapshot> {
   const existingCliente = findClienteColumn(headers);
   const clienteCol = existingCliente >= 0 ? existingCliente : firstFreeColumnAfter(headers, AF_INDEX);
   const estadoCol = findEstadoColumn(headers);
+  const pantallaCol = findPantallaColumn(headers);
+  const nombreCol = findNombreColumn(headers);
+  const fechaCol = findFechaColumn(headers);
 
-  const lastCol = Math.max(headers.length - 1, clienteCol, emailCol, estadoCol);
+  // Columna Secuencia: reusa el header "Secuencia" si existe; si no, primera
+  // libre después de AF sin colisionar con la columna Cliente recién asignada.
+  const existingSec = findSecuenciaColumn(headers);
+  let secuenciaCol: number;
+  if (existingSec >= 0) {
+    secuenciaCol = existingSec;
+  } else {
+    secuenciaCol = firstFreeColumnAfter(headers, AF_INDEX);
+    if (existingCliente < 0 && secuenciaCol === clienteCol) {
+      secuenciaCol = firstFreeColumnAfter(headers, clienteCol + 1);
+    }
+  }
+
+  const lastCol = Math.max(
+    headers.length - 1,
+    clienteCol,
+    emailCol,
+    estadoCol,
+    pantallaCol,
+    nombreCol,
+    fechaCol,
+    secuenciaCol
+  );
   const dataRange = `${CRM_TAB}!A2:${colLetter(lastCol)}`;
   const values = await getValues(dataRange);
 
@@ -122,9 +175,25 @@ export async function readCrmSheet(): Promise<CrmSnapshot> {
     rowIndex: i + 2,
     email: normalizeEmail(r[emailCol] || ''),
     cliente: existingCliente >= 0 ? r[existingCliente] || '' : '',
+    estado: estadoCol >= 0 ? r[estadoCol] || '' : '',
+    pantalla: pantallaCol >= 0 ? r[pantallaCol] || '' : '',
+    fecha: r[fechaCol] || '',
+    nombre: nombreCol >= 0 ? r[nombreCol] || '' : '',
   }));
 
-  return { headers, emailCol, clienteCol, clienteColExists: existingCliente >= 0, estadoCol, rows };
+  return {
+    headers,
+    emailCol,
+    clienteCol,
+    clienteColExists: existingCliente >= 0,
+    estadoCol,
+    pantallaCol,
+    nombreCol,
+    fechaCol,
+    secuenciaCol,
+    secuenciaColExists: existingSec >= 0,
+    rows,
+  };
 }
 
 /** email → texto actual de la columna Cliente (para el diff del cron). */
@@ -209,6 +278,27 @@ export async function markClienteInCRM(
   }
   await valuesBatchUpdate(cells);
   return { found: true };
+}
+
+/**
+ * Escribe la columna Secuencia para las filas indicadas (+ header si hace falta).
+ * Usado por el motor drip tras cada envío de la secuencia post-Typeform.
+ * `updates` = filas a marcar con su texto (ej: "sq3 enviado 08/07").
+ */
+export async function writeSecuenciaMarks(
+  snap: CrmSnapshot,
+  updates: Array<{ rowIndex: number; text: string }>
+): Promise<void> {
+  if (updates.length === 0 && snap.secuenciaColExists) return;
+  const col = colLetter(snap.secuenciaCol);
+  const cells: CellUpdate[] = [];
+  if (!snap.secuenciaColExists) {
+    cells.push({ range: `${CRM_TAB}!${col}1`, value: 'Secuencia' });
+  }
+  for (const u of updates) {
+    cells.push({ range: `${CRM_TAB}!${col}${u.rowIndex}`, value: u.text });
+  }
+  await valuesBatchUpdate(cells);
 }
 
 // ─── Tab de Reconciliación ──────────────────────────────────────────

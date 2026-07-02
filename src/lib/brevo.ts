@@ -292,6 +292,26 @@ export async function getBrevoPurchasedSet(): Promise<Set<string>> {
   return set;
 }
 
+/**
+ * ¿El contacto está en la blacklist de email de Brevo (emailBlacklisted=true)?
+ * Consulta `GET /contacts/{email}`. Un contacto inexistente (404) NO está
+ * blacklisted → false. Ante error de red devuelve false (fail-open: el envío
+ * no se bloquea por un fallo de consulta, mismo criterio que el resto del flujo).
+ */
+export async function isEmailBlacklisted(email: string): Promise<boolean> {
+  const target = (email || '').trim().toLowerCase();
+  if (!target) return false;
+  try {
+    const res = await brevoFetch(`/contacts/${encodeURIComponent(target)}`);
+    if (res.status === 404) return false;
+    if (!res.ok) return false;
+    const data = (await res.json()) as { emailBlacklisted?: boolean };
+    return data.emailBlacklisted === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function testConnection(): Promise<{ success: boolean; error?: string }> {
   try {
     const accountApi = new Brevo.AccountApi();

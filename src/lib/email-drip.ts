@@ -535,9 +535,16 @@ export async function enqueueRecupero(params: {
   email: string;
   name?: string;
   orderId: string;
-}): Promise<{ enqueued: boolean; reason?: 'cliente' | 'dedupe' | 'error' }> {
+}): Promise<{ enqueued: boolean; reason?: 'cliente' | 'dedupe' | 'excluido-1a1' | 'error' }> {
   const email = (params.email || '').trim().toLowerCase();
   if (!email) return { enqueued: false, reason: 'error' };
+
+  // En gestión 1-a-1 (carritos ya contactados a mano, teléfonos, upgrades):
+  // el trato personal manda, el mail automático duplicaría el contacto.
+  if (isSecuenciaExcluido(email)) {
+    console.log(`Recupero: ${email} en gestión 1-a-1, no se encola`);
+    return { enqueued: false, reason: 'excluido-1a1' };
+  }
 
   // (b) Ya es cliente → no encolar. Fail-open: si la consulta falla, seguimos
   //     (el re-chequeo antes del envío es la red de seguridad).

@@ -18,7 +18,13 @@ import {
   isSecuenciaExcluido,
   computeElegibles,
   buildSecuenciaMail,
+  buildRecuperoMail,
+  buildMailTierC,
+  computeTierCCandidates,
+  tieneMailCEnviado,
+  fechaArgDDMM,
   type StockRow,
+  type TierCRow,
 } from '@/lib/secuencia-post-typeform';
 
 // Día de la semana en hora ART (UTC-3): 0 = domingo … 6 = sábado.
@@ -296,5 +302,118 @@ describe('buildSecuenciaMail', () => {
 
   it('paso inválido lanza error', () => {
     expect(() => buildSecuenciaMail(9, 'x')).toThrow();
+  });
+});
+
+describe('buildRecuperoMail (T9)', () => {
+  it('usa el nombre si está, y "Hola," si no', () => {
+    expect(buildRecuperoMail('Juan').text.startsWith('Hola Juan,')).toBe(true);
+    expect(buildRecuperoMail('').text.startsWith('Hola,')).toBe(true);
+  });
+  it('asunto exacto y link de carrito con ?m=rec1', () => {
+    const m = buildRecuperoMail('Juan');
+    expect(m.subject).toBe('se trabó tu inscripción');
+    expect(m.text).toContain('https://urologia.ar/carrito/?add-to-cart=3740&m=rec1');
+  });
+  it('mantiene la PD de MercadoPago/cuotas', () => {
+    expect(buildRecuperoMail('x').text).toContain('MercadoPago y tenés cuotas');
+  });
+});
+
+describe('buildMailTierC (T12)', () => {
+  it('usa el nombre si está, y "Hola," si no', () => {
+    expect(buildMailTierC('Juan').text.startsWith('Hola Juan,')).toBe(true);
+    expect(buildMailTierC('').text.startsWith('Hola,')).toBe(true);
+  });
+  it('asunto exacto y link de Calendly', () => {
+    const m = buildMailTierC('Juan');
+    expect(m.subject).toBe('sobre tu test');
+    expect(m.text).toContain('https://calendly.com/urologocarrillo');
+  });
+  it('no ofrece el programa (deriva a consulta)', () => {
+    expect(buildMailTierC('x').text).not.toContain('urologia.ar/recuperatuereccion');
+  });
+});
+
+describe('fechaArgDDMM', () => {
+  it('dd/mm en hora ART (UTC-3)', () => {
+    // 03/07 01:00 UTC = 02/07 22:00 ART → dd/mm = 02/07
+    expect(fechaArgDDMM(new Date('2026-07-03T01:00:00Z'))).toBe('02/07');
+    // 03/07 15:00 UTC = 03/07 12:00 ART → 03/07
+    expect(fechaArgDDMM(new Date('2026-07-03T15:00:00Z'))).toBe('03/07');
+  });
+});
+
+describe('tieneMailCEnviado', () => {
+  it('detecta la marca del Sheet (tolera espacios/case)', () => {
+    expect(tieneMailCEnviado('Mail C enviado 02/07')).toBe(true);
+    expect(tieneMailCEnviado('mail c enviado')).toBe(true);
+    expect(tieneMailCEnviado('MailC enviado')).toBe(true);
+    expect(tieneMailCEnviado('')).toBe(false);
+    expect(tieneMailCEnviado('sq3 enviado 08/07')).toBe(false);
+  });
+});
+
+describe('computeTierCCandidates (T12 backfill)', () => {
+  const esCliente = (email: string) => email === 'cliente@x.com';
+
+  function row(p: Partial<TierCRow>): TierCRow {
+    return {
+      email: p.email ?? 'c@x.com',
+      pantalla: p.pantalla ?? 'C',
+      estado: p.estado ?? '',
+      secuencia: p.secuencia ?? '',
+      nombre: p.nombre ?? 'Juan',
+      rowIndex: p.rowIndex ?? 2,
+    };
+  }
+
+  it('fila tier C limpia → candidato', () => {
+    const res = computeTierCCandidates([row({ email: 'ok@x.com', rowIndex: 5 })], { esCliente });
+    expect(res.candidatos).toHaveLength(1);
+    expect(res.candidatos[0]).toEqual({ email: 'ok@x.com', nombre: 'Juan', rowIndex: 5 });
+    expect(res.tierCTotal).toBe(1);
+  });
+
+  it('ignora filas que no son tier C (no cuentan como descarte)', () => {
+    const res = computeTierCCandidates(
+      [row({ email: 'a@x.com', pantalla: 'A' }), row({ email: 'b@x.com', pantalla: 'B' })],
+      { esCliente }
+    );
+    expect(res.candidatos).toHaveLength(0);
+    expect(res.tierCTotal).toBe(0);
+  });
+
+  it('descarta duplicados de tier C', () => {
+    const res = computeTierCCandidates(
+      [row({ email: 'dup@x.com' }), row({ email: 'dup@x.com' })],
+      { esCliente }
+    );
+    expect(res.candidatos).toHaveLength(1);
+    expect(res.descartes.duplicado).toBe(1);
+  });
+
+  it('descarta filas que ya tienen "Mail C enviado"', () => {
+    const res = computeTierCCandidates(
+      [row({ email: 'ya@x.com', secuencia: 'Mail C enviado 01/07' })],
+      { esCliente }
+    );
+    expect(res.candidatos).toHaveLength(0);
+    expect(res.descartes['ya-enviado']).toBe(1);
+  });
+
+  it('descarta filas con Estado no vacío', () => {
+    const res = computeTierCCandidates(
+      [row({ email: 'e@x.com', estado: 'Respondido' })],
+      { esCliente }
+    );
+    expect(res.candidatos).toHaveLength(0);
+    expect(res.descartes['estado-no-vacio']).toBe(1);
+  });
+
+  it('descarta compradores', () => {
+    const res = computeTierCCandidates([row({ email: 'cliente@x.com' })], { esCliente });
+    expect(res.candidatos).toHaveLength(0);
+    expect(res.descartes.cliente).toBe(1);
   });
 });

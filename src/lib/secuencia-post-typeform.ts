@@ -259,6 +259,44 @@ function mail8(name: string): SecuenciaMail {
 }
 
 /**
+ * Recupero de carrito (T9) — mail único disparado por una orden cancelled/pending
+ * del programa 3740 (redirect fallido de MercadoPago). Copy aprobado por Mauro,
+ * plain text, firma "Mauro". El link lleva ?m=rec1 para atribución.
+ */
+export function buildRecuperoMail(name: string): SecuenciaMail {
+  const n = (name || '').trim();
+  return {
+    subject: 'se trabó tu inscripción',
+    text:
+      `${greeting(n)}\n\n` +
+      `Vi que empezaste la inscripción al programa Controla tu Mente, Recupera tu Erección y el pago no llegó a completarse. Pasa seguido con el redirect de MercadoPago, así que quería asegurarme de que no te quedaras afuera por un tema técnico.\n\n` +
+      `Si querés retomarla: https://urologia.ar/carrito/?add-to-cart=3740&m=rec1\n\n` +
+      `Si fue el medio de pago, respondeme y lo resolvemos por otro lado. Y si te apareció una duda antes de confirmar, contame y la vemos.\n\n` +
+      `Abrazo,\n` +
+      `Mauro\n\n` +
+      `PD: desde Argentina pagás en pesos por MercadoPago y tenés cuotas.\n`,
+  };
+}
+
+/**
+ * Tier C (T12) — el test detectó red flags médicos: el caso merece consulta
+ * individual antes que un programa. Redirige a Calendly. Plain text, firma "Mauro".
+ */
+export function buildMailTierC(name: string): SecuenciaMail {
+  const n = (name || '').trim();
+  return {
+    subject: 'sobre tu test',
+    text:
+      `${greeting(n)}\n\n` +
+      `Vi tus respuestas del test y quiero ser honesto con vos, porque para eso lo hiciste: por lo que me contás, tu caso merece una consulta individual antes que un programa. Hay cosas que corresponde revisar bien primero — y no te voy a ofrecer otra cosa cuando lo que necesitás es eso.\n\n` +
+      `Podés agendar conmigo acá: https://calendly.com/urologocarrillo\n\n` +
+      `Salís de esa consulta con un rumbo claro.\n\n` +
+      `Abrazo,\n` +
+      `Mauro\n`,
+  };
+}
+
+/**
  * Devuelve el mail de un paso de la secuencia.
  * @param step 0..8 (0 = M0, 1 = M1, 2..8 = M2..M8)
  * @param name  nombre (fallback: "" → "Hola,")
@@ -522,4 +560,92 @@ export function computeElegibles(
   }
 
   return { elegibles, descartes, totalRows: rows.length, uniques: seen.size };
+}
+
+// ─── Fecha dd/mm en hora de Argentina (marca del Sheet CRM) ─────────
+
+/** dd/mm del instante `d` en hora ART (UTC-3). Usado en las marcas del Sheet. */
+export function fechaArgDDMM(d: Date): string {
+  const art = new Date(d.getTime() + ART_OFFSET_HOURS * 60 * 60 * 1000);
+  const dd = String(art.getUTCDate()).padStart(2, '0');
+  const mm = String(art.getUTCMonth() + 1).padStart(2, '0');
+  return `${dd}/${mm}`;
+}
+
+// ─── Backfill Tier C → Calendly (T12): filtro puro y testeable ──────
+
+export interface TierCRow {
+  email: string;
+  pantalla: string;
+  estado: string;
+  secuencia: string; // valor actual de la columna Secuencia del CRM
+  nombre: string;
+  rowIndex: number; // 1-based, para marcar la fila
+}
+
+export interface TierCCandidato {
+  email: string;
+  nombre: string;
+  rowIndex: number;
+}
+
+export type TierCDescarteRazon = 'duplicado' | 'ya-enviado' | 'estado-no-vacio' | 'cliente';
+
+export interface TierCResult {
+  candidatos: TierCCandidato[];
+  descartes: Record<TierCDescarteRazon, number>;
+  tierCTotal: number; // filas tier C únicas (antes de descartes)
+}
+
+/** ¿La celda Secuencia ya registra el envío del mail C? */
+export function tieneMailCEnviado(secuencia: string): boolean {
+  return /mail\s*c\s*enviad/i.test(secuencia || '');
+}
+
+/**
+ * Candidatos del backfill tier C: filas Pantalla C, email único, SIN "Mail C
+ * enviado" en Secuencia, Estado vacío y NO cliente. La blacklist NO se filtra
+ * acá (es IO cara): se re-chequea antes de CADA envío en el endpoint.
+ * `esCliente` se inyecta (predicado sync sobre el mapa de clientes).
+ */
+export function computeTierCCandidates(
+  rows: TierCRow[],
+  opts: { esCliente: (email: string) => boolean }
+): TierCResult {
+  const descartes: Record<TierCDescarteRazon, number> = {
+    duplicado: 0,
+    'ya-enviado': 0,
+    'estado-no-vacio': 0,
+    cliente: 0,
+  };
+  const seen = new Set<string>();
+  const candidatos: TierCCandidato[] = [];
+
+  for (const row of rows) {
+    const email = (row.email || '').trim().toLowerCase();
+    if (!email) continue;
+    if (tierDePantalla(row.pantalla) !== 'C') continue; // sólo tier C
+    if (seen.has(email)) {
+      descartes.duplicado++;
+      continue;
+    }
+    seen.add(email);
+
+    if (tieneMailCEnviado(row.secuencia)) {
+      descartes['ya-enviado']++;
+      continue;
+    }
+    if ((row.estado || '').trim() !== '') {
+      descartes['estado-no-vacio']++;
+      continue;
+    }
+    if (opts.esCliente(email)) {
+      descartes.cliente++;
+      continue;
+    }
+
+    candidatos.push({ email, nombre: (row.nombre || '').trim(), rowIndex: row.rowIndex });
+  }
+
+  return { candidatos, descartes, tierCTotal: seen.size };
 }

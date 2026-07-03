@@ -124,6 +124,7 @@ export interface CrmRow {
   pantalla: string; // valor actual de "Pantalla" ('' si no existe)
   fecha: string; // valor crudo de la columna de fecha del test ('' si no existe)
   nombre: string; // valor de la columna Nombre ('' si no existe)
+  secuencia: string; // valor actual de la columna Secuencia ('' si no existe/está vacía)
 }
 
 export interface CrmSnapshot {
@@ -190,6 +191,7 @@ export async function readCrmSheet(): Promise<CrmSnapshot> {
     pantalla: pantallaCol >= 0 ? r[pantallaCol] || '' : '',
     fecha: r[fechaCol] || '',
     nombre: nombreCol >= 0 ? r[nombreCol] || '' : '',
+    secuencia: existingSec >= 0 ? r[existingSec] || '' : '',
   }));
 
   return {
@@ -310,6 +312,36 @@ export async function writeSecuenciaMarks(
     cells.push({ range: `${CRM_TAB}!${col}${u.rowIndex}`, value: u.text });
   }
   await valuesBatchUpdate(cells);
+}
+
+/**
+ * Marca la columna Secuencia para uno o varios emails, buscando la fila por email
+ * (primera coincidencia). Lee el snapshot una vez. Emails ausentes del Sheet se
+ * ignoran (best-effort). Usado por el webhook typeform (tier C) y el backfill.
+ */
+export async function markSecuenciaForEmails(
+  marks: Array<{ email: string; text: string }>
+): Promise<{ marked: number; notFound: string[] }> {
+  if (marks.length === 0) return { marked: 0, notFound: [] };
+  const snap = await readCrmSheet();
+
+  const rowByEmail = new Map<string, number>();
+  for (const row of snap.rows) {
+    if (row.email && !rowByEmail.has(row.email)) rowByEmail.set(row.email, row.rowIndex);
+  }
+
+  const updates: Array<{ rowIndex: number; text: string }> = [];
+  const notFound: string[] = [];
+  for (const m of marks) {
+    const email = normalizeEmail(m.email);
+    const rowIndex = rowByEmail.get(email);
+    if (rowIndex) updates.push({ rowIndex, text: m.text });
+    else notFound.push(email);
+  }
+
+  if (updates.length === 0) return { marked: 0, notFound };
+  await writeSecuenciaMarks(snap, updates);
+  return { marked: updates.length, notFound };
 }
 
 // ─── Tab de Reconciliación ──────────────────────────────────────────

@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getClienteInfo, clienteCellText, type EstadoCliente } from '@/lib/clientes';
-import { markClienteInCRM } from '@/lib/crm-sheet';
-import { enrollSecuencia, getEnrolledSecuenciaEmails } from '@/lib/email-drip';
-import { buildSecuenciaMail, computeSequenceDates } from '@/lib/secuencia-post-typeform';
+import { markClienteInCRM, markSecuenciaForEmails } from '@/lib/crm-sheet';
+import { enrollSecuencia, getEnrolledSecuenciaEmails, sendPlainSecuencia } from '@/lib/email-drip';
+import {
+  buildSecuenciaMail,
+  buildMailTierC,
+  computeSequenceDates,
+  fechaArgDDMM,
+} from '@/lib/secuencia-post-typeform';
 
 const POSTEST_LIST_ID = 24; // "PROGRAMA Control Mental" en Brevo
 const SENDER = { name: 'Mauro Carrillo', email: 'mauro@urologia.ar' };
@@ -172,11 +177,37 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const payload = parsed.payload;
 
   if (payload.tier === 'C') {
+    // Tier C (red flags médicos): el caso merece consulta individual. Enviamos el
+    // mail que redirige a Calendly (mismo mecanismo plain que la secuencia, con
+    // pie de baja) y marcamos "Mail C enviado dd/mm" en la columna Secuencia.
+    const mail = buildMailTierC(firstName(payload.name));
+    const sendResult = await sendPlainSecuencia(
+      payload.email,
+      payload.name || '',
+      mail.subject,
+      mail.text
+    );
+
+    let marked = false;
+    if (sendResult.success) {
+      try {
+        const r = await markSecuenciaForEmails([
+          { email: payload.email, text: `Mail C enviado ${fechaArgDDMM(new Date())}` },
+        ]);
+        marked = r.marked > 0;
+      } catch (crmErr) {
+        console.error('Tier C sheet mark error (non-blocking):', crmErr);
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      skipped: true,
-      reason: 'tier C does not receive post-test email',
+      tier: 'C',
       pantalla: payload.pantalla,
+      sent: sendResult.success,
+      messageId: sendResult.messageId,
+      marked,
+      ...(sendResult.success ? {} : { sendError: sendResult.error }),
     });
   }
 

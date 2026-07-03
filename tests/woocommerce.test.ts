@@ -16,18 +16,20 @@ jest.mock('@/lib/crm-sheet', () => ({
 }));
 jest.mock('@/lib/email-drip', () => ({
   cancelDripForEmail: jest.fn(),
+  enqueueRecupero: jest.fn(),
 }));
 
 import { GET, POST, HEAD } from '@/app/api/webhook/woocommerce/route';
 import { markAsPurchased } from '@/lib/brevo';
 import { markLeadAsPurchased } from '@/lib/storage';
 import { markClienteInCRM } from '@/lib/crm-sheet';
-import { cancelDripForEmail } from '@/lib/email-drip';
+import { cancelDripForEmail, enqueueRecupero } from '@/lib/email-drip';
 
 const mockedMarkAsPurchased = markAsPurchased as jest.MockedFunction<typeof markAsPurchased>;
 const mockedMarkLeadAsPurchased = markLeadAsPurchased as jest.MockedFunction<typeof markLeadAsPurchased>;
 const mockedMarkClienteInCRM = markClienteInCRM as jest.MockedFunction<typeof markClienteInCRM>;
 const mockedCancelDrip = cancelDripForEmail as jest.MockedFunction<typeof cancelDripForEmail>;
+const mockedEnqueueRecupero = enqueueRecupero as jest.MockedFunction<typeof enqueueRecupero>;
 
 function generateSignature(payload: string, secret: string): string {
   return crypto
@@ -59,6 +61,7 @@ describe('WooCommerce Webhook API', () => {
     process.env.WOOCOMMERCE_WEBHOOK_SECRET = 'test-woo-secret';
     mockedMarkClienteInCRM.mockResolvedValue({ found: false });
     mockedCancelDrip.mockResolvedValue({ cancelled: 0 });
+    mockedEnqueueRecupero.mockResolvedValue({ enqueued: true });
   });
 
   describe('HEAD /api/webhook/woocommerce', () => {
@@ -125,6 +128,58 @@ describe('WooCommerce Webhook API', () => {
       expect(data.success).toBe(true);
       expect(data.message).toContain('pending');
       expect(mockedMarkAsPurchased).not.toHaveBeenCalled();
+      // Producto 1 (no el programa 3740) → no dispara recupero.
+      expect(mockedEnqueueRecupero).not.toHaveBeenCalled();
+    });
+
+    it('encola recupero para orden cancelled del programa 3740', async () => {
+      const order = {
+        ...sampleOrder,
+        status: 'cancelled',
+        line_items: [{ product_id: 3740, name: 'Programa DE', quantity: 1 }],
+      };
+      const payload = JSON.stringify(order);
+      const signature = generateSignature(payload, 'test-woo-secret');
+
+      const request = new NextRequest('http://localhost/api/webhook/woocommerce', {
+        method: 'POST',
+        headers: { 'x-wc-webhook-signature': signature },
+        body: payload,
+      });
+
+      const response = await POST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.success).toBe(true);
+      expect(data.message).toContain('recupero');
+      expect(mockedEnqueueRecupero).toHaveBeenCalledWith({
+        email: 'customer@example.com',
+        name: 'John',
+        orderId: '12345',
+      });
+      // No es una compra: no toca Brevo/compradores.
+      expect(mockedMarkAsPurchased).not.toHaveBeenCalled();
+    });
+
+    it('encola recupero para orden pending del programa 3740', async () => {
+      const order = {
+        ...sampleOrder,
+        status: 'pending',
+        line_items: [{ product_id: 3740, name: 'Programa DE', quantity: 1 }],
+      };
+      const payload = JSON.stringify(order);
+      const signature = generateSignature(payload, 'test-woo-secret');
+
+      const request = new NextRequest('http://localhost/api/webhook/woocommerce', {
+        method: 'POST',
+        headers: { 'x-wc-webhook-signature': signature },
+        body: payload,
+      });
+
+      const response = await POST(request);
+      expect(response.status).toBe(200);
+      expect(mockedEnqueueRecupero).toHaveBeenCalledTimes(1);
     });
 
     it('processes completed order successfully', async () => {

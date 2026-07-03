@@ -12,7 +12,9 @@ import {
 } from './crm-sheet';
 import {
   buildSecuenciaMail,
+  buildRecuperoMail,
   estadoPausaSecuencia,
+  fechaArgDDMM,
   isSecuenciaExcluido,
   SECUENCIA_SENDER,
   SECUENCIA_TAG,
@@ -81,13 +83,21 @@ interface ScheduledEmail {
   cancelReason?: string;
   error?: string;
   // ── Secuencia post-Typeform (mails "caseros" inline de mauro@) ──
-  kind?: 'template' | 'secuencia'; // undefined = 'template' (retrocompat)
+  kind?: 'template' | 'secuencia' | 'recupero'; // undefined = 'template' (retrocompat)
   seqStep?: number; // 1..8 (M1..M8)
   mailVariant?: MailVariant; // sólo relevante para M1 (A/B)
 }
 
 const DRIP_QUEUE_KEY = 'drip:queue';
 const DRIP_SENT_KEY = 'drip:sent';
+
+// ─── Recupero de carrito (T9) ───────────────────────────────────────
+export const RECUPERO_TAG = 'recupero-carrito';
+// Delay del mail de recupero desde que llega la orden cancelled/pending.
+const RECUPERO_DELAY_MS = 2 * 60 * 60 * 1000; // +2 h
+// Dedupe por email: máximo 1 recupero cada 30 días.
+const RECUPERO_DEDUPE_PREFIX = 'recupero-dedupe:';
+const RECUPERO_DEDUPE_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 días
 
 // Tope de envíos de secuencia por corrida de cron (protege el timeout de 60s de
 // la función; el resto queda 'pending' y sale en la próxima corrida). Configurable.
@@ -355,14 +365,6 @@ export async function enrollSecuencia(params: {
   return { scheduled: 8 };
 }
 
-// dd/mm en hora de Argentina (para la marca del Sheet CRM).
-function fechaArg(d: Date): string {
-  const art = new Date(d.getTime() - 3 * 60 * 60 * 1000);
-  const dd = String(art.getUTCDate()).padStart(2, '0');
-  const mm = String(art.getUTCMonth() + 1).padStart(2, '0');
-  return `${dd}/${mm}`;
-}
-
 interface SecuenciaRunResult {
   processed: number;
   sent: number;
@@ -498,7 +500,7 @@ async function processSecuenciaDue(
       console.log(`Secuencia enviada: sq${step} → ${email}`);
       // Registro en el Sheet (marca sqN enviado dd/mm) sobre la primera fila.
       const row = rows[0];
-      if (row) sheetMarks.push({ rowIndex: row.rowIndex, text: `sq${step} enviado ${fechaArg(now)}` });
+      if (row) sheetMarks.push({ rowIndex: row.rowIndex, text: `sq${step} enviado ${fechaArgDDMM(now)}` });
     } else {
       res.failed++;
       entry.status = 'failed';
@@ -514,6 +516,159 @@ async function processSecuenciaDue(
       await writeSecuenciaMarks(snap, sheetMarks);
     } catch (err) {
       console.error('Secuencia: no se pudo registrar en el Sheet (non-blocking):', err);
+    }
+  }
+
+  return res;
+}
+
+// ─── Recupero de carrito (T9) ───────────────────────────────────────
+
+/**
+ * Encola un mail de recupero de carrito (kind 'recupero', sendAt = +2 h) para
+ * una orden cancelled/pending del programa 3740. Reglas:
+ *   (b) NO encola si ya es cliente (pudo pagar con otra orden — caso nahuel.auge).
+ *   (a) dedupe por email: máximo 1 recupero cada 30 días (KV SET NX + TTL).
+ * El re-chequeo de cliente/blacklist antes del envío lo hace processRecuperoDue.
+ */
+export async function enqueueRecupero(params: {
+  email: string;
+  name?: string;
+  orderId: string;
+}): Promise<{ enqueued: boolean; reason?: 'cliente' | 'dedupe' | 'error' }> {
+  const email = (params.email || '').trim().toLowerCase();
+  if (!email) return { enqueued: false, reason: 'error' };
+
+  // (b) Ya es cliente → no encolar. Fail-open: si la consulta falla, seguimos
+  //     (el re-chequeo antes del envío es la red de seguridad).
+  try {
+    if (await esCliente(email)) {
+      console.log(`Recupero: ${email} ya es cliente, no se encola`);
+      return { enqueued: false, reason: 'cliente' };
+    }
+  } catch (err) {
+    console.warn('Recupero: no se pudo chequear esCliente (fail-open):', err);
+  }
+
+  // (a) Dedupe 30 días: SET NX atómico. Si la clave ya existe → skip.
+  const dedupeKey = `${RECUPERO_DEDUPE_PREFIX}${email}`;
+  try {
+    const claimed = await kv.set(dedupeKey, params.orderId, {
+      ex: RECUPERO_DEDUPE_TTL_SECONDS,
+      nx: true,
+    });
+    if (claimed === null) {
+      console.log(`Recupero: ${email} ya recibió recupero en los últimos 30 días, skip`);
+      return { enqueued: false, reason: 'dedupe' };
+    }
+  } catch (err) {
+    // KV no disponible: seguimos (mejor un posible duplicado raro que perder el lead).
+    console.warn('Recupero: dedupe KV falló (fail-open, se encola igual):', err);
+  }
+
+  const now = new Date();
+  const sendAt = new Date(now.getTime() + RECUPERO_DELAY_MS);
+  const mail = buildRecuperoMail(params.name || '');
+  const entry: ScheduledEmail = {
+    id: `rec_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    email,
+    name: params.name,
+    tag: RECUPERO_TAG,
+    stepIndex: 0,
+    templateId: 0,
+    subject: mail.subject,
+    sendAt: sendAt.toISOString(),
+    status: 'pending',
+    createdAt: now.toISOString(),
+    kind: 'recupero',
+  };
+
+  try {
+    await kv.hset(DRIP_QUEUE_KEY, { [entry.id]: JSON.stringify(entry) });
+  } catch (err) {
+    // Rollback del dedupe para permitir un reintento posterior.
+    try {
+      await kv.del(dedupeKey);
+    } catch { /* best-effort */ }
+    console.error('Recupero: hset falló, rollback dedupe:', err);
+    return { enqueued: false, reason: 'error' };
+  }
+
+  console.log(`Recupero encolado: ${email} (orden ${params.orderId}) sendAt ${sendAt.toISOString()}`);
+  return { enqueued: true };
+}
+
+interface RecuperoRunResult {
+  processed: number;
+  sent: number;
+  failed: number;
+  cancelled: number;
+}
+
+/**
+ * Procesa los mails de recupero vencidos. Re-chequea ANTES de cada envío:
+ * si ya es cliente o está blacklisted → cancela (no envía). Una sola lectura del
+ * mapa de clientes por corrida; blacklist con cache por email.
+ */
+async function processRecuperoDue(
+  due: Array<{ id: string; entry: ScheduledEmail }>,
+  now: Date
+): Promise<RecuperoRunResult> {
+  const res: RecuperoRunResult = { processed: 0, sent: 0, failed: 0, cancelled: 0 };
+
+  let clientesMap: ClientesMap | null = null;
+  try {
+    clientesMap = await getClientes();
+  } catch (err) {
+    console.warn('Recupero: no se pudo cargar el mapa de clientes (fail-open):', err);
+  }
+
+  const blCache = new Map<string, boolean>();
+  const blacklisted = async (email: string): Promise<boolean> => {
+    const cached = blCache.get(email);
+    if (cached !== undefined) return cached;
+    const v = await isEmailBlacklisted(email);
+    blCache.set(email, v);
+    return v;
+  };
+
+  const cancel = async (id: string, entry: ScheduledEmail, reason: string) => {
+    entry.status = 'cancelled';
+    entry.cancelledAt = now.toISOString();
+    entry.cancelReason = reason;
+    await kv.hset(DRIP_QUEUE_KEY, { [id]: JSON.stringify(entry) });
+    res.cancelled++;
+    console.log(`Recupero cancelado (${reason}): → ${entry.email}`);
+  };
+
+  for (const { id, entry } of due) {
+    const email = (entry.email || '').trim().toLowerCase();
+
+    // ── Re-chequeo antes del envío (regla c) ──
+    if (clientesMap && (await esCliente(email, clientesMap))) {
+      await cancel(id, entry, 'cliente');
+      continue;
+    }
+    if (await blacklisted(email)) {
+      await cancel(id, entry, 'blacklist');
+      continue;
+    }
+
+    res.processed++;
+    const mail = buildRecuperoMail(entry.name || '');
+    const result = await sendPlainSecuencia(email, entry.name, mail.subject, mail.text);
+    if (result.success) {
+      res.sent++;
+      entry.status = 'sent';
+      entry.sentAt = now.toISOString();
+      await kv.hset(DRIP_QUEUE_KEY, { [id]: JSON.stringify(entry) });
+      console.log(`Recupero enviado → ${email}`);
+    } else {
+      res.failed++;
+      entry.status = 'failed';
+      entry.error = result.error;
+      await kv.hset(DRIP_QUEUE_KEY, { [id]: JSON.stringify(entry) });
+      console.error(`Recupero falló → ${email}: ${result.error}`);
     }
   }
 
@@ -550,11 +705,11 @@ export async function processDripQueue(): Promise<{
   let remaining = 0;
 
   const secuenciaDue: Array<{ id: string; entry: ScheduledEmail }> = [];
+  const recuperoDue: Array<{ id: string; entry: ScheduledEmail }> = [];
 
   for (const { id, entry } of all) {
     if (entry.status !== 'pending') continue;
 
-    const isSecuencia = entry.kind === 'secuencia';
     const sendAt = new Date(entry.sendAt);
 
     if (sendAt > now) {
@@ -562,9 +717,15 @@ export async function processDripQueue(): Promise<{
       continue;
     }
 
-    if (isSecuencia) {
+    if (entry.kind === 'secuencia') {
       // La secuencia se procesa en bloque (caches + re-chequeos + orden).
       secuenciaDue.push({ id, entry });
+      continue;
+    }
+
+    if (entry.kind === 'recupero') {
+      // El recupero se procesa en bloque (re-chequeo cliente/blacklist).
+      recuperoDue.push({ id, entry });
       continue;
     }
 
@@ -598,11 +759,20 @@ export async function processDripQueue(): Promise<{
     remaining += secRes.deferred; // los pospuestos siguen pendientes
   }
 
+  if (recuperoDue.length > 0) {
+    const recRes = await processRecuperoDue(recuperoDue, now);
+    processed += recRes.processed;
+    sent += recRes.sent;
+    failed += recRes.failed;
+    cancelled += recRes.cancelled;
+  }
+
   return { processed, sent, failed, remaining, cancelled, deferred };
 }
 
 /**
- * Cancela (exit-on-purchase) todos los mails pendientes de un email en la cola.
+ * Cancela (exit-on-purchase) todos los mails pendientes de un email en la cola,
+ * de cualquier kind (secuencia, recupero de carrito y drips por template).
  * Los marca 'cancelled' en vez de borrarlos, para dejar rastro auditable.
  * Llamado por el webhook WooCommerce cuando la persona compra.
  */

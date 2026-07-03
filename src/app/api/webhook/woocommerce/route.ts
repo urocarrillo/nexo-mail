@@ -7,7 +7,7 @@ import { getAffiliate, logSale } from '@/lib/sheets-affiliates';
 import { logSesion } from '@/lib/sheets-sesiones';
 import { sendAffiliateSaleNotification } from '@/lib/email-affiliate';
 import { markClienteInCRM } from '@/lib/crm-sheet';
-import { cancelDripForEmail } from '@/lib/email-drip';
+import { cancelDripForEmail, enqueueRecupero } from '@/lib/email-drip';
 import {
   clienteCellText,
   productosText,
@@ -139,6 +139,38 @@ export async function POST(request: NextRequest): Promise<NextResponse<WebhookRe
     );
   }
 
+  const email = order.billing.email.toLowerCase().trim();
+
+  // Recupero de carrito (T9): ~40% de las órdenes del 3740 se cancela en el
+  // redirect de MercadoPago y nadie las recontacta. Ante una orden cancelled/
+  // pending del programa encolamos un mail de recupero (+2 h). El dedupe por
+  // email (30 d), el skip-si-cliente y el re-chequeo antes de enviar viven en
+  // enqueueRecupero / el motor drip. Va antes del filtro "sólo completed".
+  if (
+    (order.status === 'cancelled' || order.status === 'pending') &&
+    order.line_items.some((item) => item.product_id === PROGRAMA_DE_PRODUCT_ID)
+  ) {
+    try {
+      const r = await enqueueRecupero({
+        email,
+        name: order.billing.first_name?.trim() || undefined,
+        orderId: order.id.toString(),
+      });
+      return NextResponse.json({
+        success: true,
+        message: `Order ${order.id} (${order.status}) → recupero ${
+          r.enqueued ? 'encolado' : `skip (${r.reason})`
+        }`,
+      });
+    } catch (err) {
+      console.error('Recupero enqueue error (non-blocking):', err);
+      return NextResponse.json({
+        success: true,
+        message: `Order ${order.id} (${order.status}) → recupero error (non-blocking)`,
+      });
+    }
+  }
+
   // Only process completed orders
   if (order.status !== 'completed') {
     return NextResponse.json({
@@ -147,7 +179,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<WebhookRe
     });
   }
 
-  const email = order.billing.email.toLowerCase().trim();
   const orderId = order.id.toString();
 
   // Idempotencia: WP dispara order.updated varias veces por orden completada

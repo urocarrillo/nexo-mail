@@ -41,7 +41,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
 
-  const dry = new URL(request.url).searchParams.get('dry') !== '0'; // default true
+  const sp = new URL(request.url).searchParams;
+  // Candado doble: el run real exige dry=0 Y confirm=enrolar (evita enrolamientos accidentales).
+  const dry = sp.get('dry') !== '0' || sp.get('confirm') !== 'enrolar';
+  if (sp.get('dry') === '0' && sp.get('confirm') !== 'enrolar') {
+    console.warn('enroll-stock: dry=0 sin confirm=enrolar → se ejecuta como dry-run');
+  }
   const now = new Date();
 
   try {

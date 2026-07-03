@@ -82,7 +82,7 @@ export function findPantallaColumn(headers: string[]): number {
 }
 
 export function findNombreColumn(headers: string[]): number {
-  return headers.findIndex((h) => /nombre|name/i.test(h || ''));
+  return headers.findIndex((h) => /te llam|nombre|name/i.test(h || ''));
 }
 
 /**

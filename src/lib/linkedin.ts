@@ -1,7 +1,7 @@
 // ─── Zernio API client for LinkedIn posting ─────────────────────────
 const ZERNIO_API_KEY = process.env.ZERNIO_API_KEY || '';
 const ZERNIO_BASE_URL = 'https://zernio.com/api/v1';
-const LINKEDIN_ACCOUNT_ID = '69caa16846f99a61a77a7f9c';
+const LINKEDIN_ACCOUNT_ID = '6a601acd542d8bc5a69e2113';
 const TIMEZONE = 'America/Argentina/Mendoza';
 
 interface ZernioPost {

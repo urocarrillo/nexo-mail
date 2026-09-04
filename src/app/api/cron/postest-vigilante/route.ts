@@ -58,7 +58,9 @@ const MAX_TIER_ROWS = 500;
 const DEFAULT_MAX = 40;
 const MAX_MAX = 100;
 const SHEETS_TIMEOUT_MS = 10_000;
-const AUX_LOAD_TIMEOUT_MS = 10_000; // mapa clientes / set enrolados, una vez por corrida
+const AUX_LOAD_TIMEOUT_MS = 10_000; // set enrolados, una vez por corrida
+const CLIENTES_LOAD_TIMEOUT_MS = 20_000; // mapa clientes (Woo pagina todo con cache fría)
+const CLIENTES_MISS_KEY = 'vigilante:clientes-miss'; // corridas seguidas sin mapa
 const ART_OFFSET_MS = -3 * 60 * 60 * 1000; // hora Argentina (UTC-3, sin DST)
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -640,9 +642,21 @@ async function correr(dry: boolean, max: number, t0: number): Promise<NextRespon
   let alreadyEnrolled: Set<string> | undefined;
   if (hayAB) {
     try {
-      clientes = await withTimeout(getClientes(), AUX_LOAD_TIMEOUT_MS, 'getClientes');
+      clientes = await withTimeout(getClientes(), CLIENTES_LOAD_TIMEOUT_MS, 'getClientes');
+      try { await kv.del(CLIENTES_MISS_KEY); } catch { /* KV: ignorar */ }
     } catch (err) {
-      stats.alerts.push(`mapa de clientes no disponible (${errMsg(err)}): se consulta por candidato, fail-open`);
+      // Cache de WooCommerce fría (pagina todas las órdenes, TTL 1 h): no es un
+      // error del embudo, cada candidato se consulta aparte (fail-open). Avisamos
+      // solo si pasa 3 corridas seguidas, para no llenar la casilla de alertas.
+      console.warn('vigilante getClientes no disponible:', errMsg(err));
+      let seguidas = 0;
+      try {
+        seguidas = await kv.incr(CLIENTES_MISS_KEY);
+        await kv.expire(CLIENTES_MISS_KEY, 6 * 60 * 60);
+      } catch { /* KV: ignorar */ }
+      if (seguidas >= 3) {
+        stats.alerts.push(`mapa de clientes no disponible ${seguidas} corridas seguidas (${errMsg(err)}): se consulta por candidato, fail-open`);
+      }
     }
   }
   if (hayA) {

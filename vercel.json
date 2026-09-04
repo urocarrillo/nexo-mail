@@ -18,6 +18,14 @@
         }
       ],
       "destination": "/link"
+    },
+    {
+      "source": "/test",
+      "destination": "/test.html"
+    },
+    {
+      "source": "/test/",
+      "destination": "/test.html"
     }
   ],
   "functions": {
@@ -91,6 +99,9 @@
       "maxDuration": 60
     },
     "src/app/api/cron/postest-vigilante/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/form/test-programa/route.ts": {
       "maxDuration": 60
     }
   },

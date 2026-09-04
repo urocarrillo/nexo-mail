@@ -60,6 +60,8 @@ export interface TypeformPayload {
   variante?: string;
   score?: number;
   tier: Tier;
+  /** ISO-2 (o 'XX') del test propio; Typeform no lo manda. */
+  pais?: string;
 }
 
 export interface DispatchResult {
@@ -177,14 +179,17 @@ async function brevoCreateOrUpdateContact(p: TypeformPayload): Promise<{ ok: boo
   const apiKey = process.env.BREVO_API_KEY;
   if (!apiKey) return { ok: false, error: 'BREVO_API_KEY missing' };
 
+  // Atributos reales de la cuenta Brevo: NOMBRE (FIRSTNAME no existe y Brevo
+  // lo descarta en silencio), TIER, PANTALLA, VARIANTE, SCORE y PAIS.
   const body = {
     email: p.email,
     attributes: {
-      FIRSTNAME: firstName(p.name),
+      NOMBRE: firstName(p.name),
       TIER: p.tier,
       PANTALLA: p.pantalla,
       VARIANTE: p.variante || '',
       SCORE: typeof p.score === 'number' ? p.score : 0,
+      ...(p.pais ? { PAIS: p.pais } : {}),
     },
     listIds: [POSTEST_LIST_ID],
     updateEnabled: true,

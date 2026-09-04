@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<!--
+  Test de calificación — programa "Controla tu Mente, Recupera tu Erección"
+  Reemplazo del Typeform bNbpXutl. Página estática autocontenida (sin dependencias).
+
+  CONTRATO BACKEND (POST JSON a /api/form/test-programa, mismo origen):
+    step:'partial'  {name,email,pais,src,_hp}                      -> fire-and-forget, una vez por email
+                    (si el usuario corrige el email antes del final se reenvía con el nuevo, máx. 3;
+                     el backend debe tomar el 'final' como fuente de verdad y no duplicar contactos)
+    step:'final'    {name,email,pais,src,p1..p7:'a'|'b'|'c',verbatim,_hp}
+                    -> {ok:true, pantalla:'A'|'B-CONTACTO'|'B-AUTO'|'C',
+                        variante:'A-Limpia'|'A-Cuotas'|'A-Nurture'|'B-CONTACTO'|'B-AUTO'|'C-P2c'|'C-P3c'|'C-P6c'|'C-ScoreBajo'}
+                       o {ok:false,error}
+    step:'contacto' {email,contacto:'meet'|'wa'|'tel',telefono?,_hp} -> {ok:true}   (solo B-CONTACTO)
+  'src' = ?src= de la URL (a-z0-9-_ , máx 40) o 'web'. '_hp' = honeypot, debe ir vacío.
+  'error' (cuando ok:false) debe ser texto apto para mostrar al usuario (se recorta a 200 chars).
+  Toda request tiene timeout de 15 s en el cliente; al vencer se muestra "Reintentar".
+  El scoring vive SOLO en el servidor: acá se envían letras y se muestra lo que devuelve.
+
+  MODO PRUEBA (sin backend): ?mock=A | Aaju | Aotras | Bauto | Bcontacto | Cp2 | Cp3 | Cp6 | Cscore
+  Con ?mock= el formulario se autocompleta con datos de prueba y no se llama a ningún endpoint:
+  alcanza con tocar "Ver mi resultado" para ver la pantalla. Se muestra un aviso "Modo prueba".
+-->
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c1925">
+<meta name="robots" content="noindex, nofollow">
+<title>Test: ¿el programa es para vos? | Urólogo Mauro Carrillo</title>
+<meta name="description" content="Respondé 7 preguntas (2 minutos) y descubrí si el programa Controla tu Mente, Recupera tu Erección es lo que necesitás ahora.">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important}}
+body{font-family:Arial,Helvetica,sans-serif;background:#0c1925;color:#313131;-webkit-font-smoothing:antialiased;min-height:100vh;line-height:1.5}
+.bg{position:fixed;inset:0;z-index:0;pointer-events:none;background:
+ radial-gradient(900px 520px at 18% 8%,rgba(90,200,250,.14) 0%,rgba(90,200,250,0) 60%),
+ radial-gradient(760px 520px at 88% 82%,rgba(72,201,176,.12) 0%,rgba(72,201,176,0) 60%),
+ radial-gradient(1400px 800px at 50% -10%,#1b3346 0%,#152735 48%,#0c1925 100%)}
+.wrap{position:relative;z-index:1;max-width:560px;margin:0 auto;padding:0 16px 48px}
+
+/* progreso */
+.prog{position:sticky;top:0;z-index:5;background:rgba(12,25,37,.92);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);margin:0 -16px;padding:12px 16px 10px;border-bottom:1px solid rgba(255,255,255,.08)}
+.prog-row{display:flex;justify-content:space-between;align-items:center;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:#9fb2c1;font-weight:bold}
+.prog-row strong{color:#5ac8fa}
+.prog-bar{height:5px;border-radius:5px;background:rgba(255,255,255,.12);margin-top:8px;overflow:hidden}
+.prog-fill{height:100%;width:0;border-radius:5px;background:linear-gradient(90deg,#5ac8fa,#48c9b0);transition:width .35s ease}
+
+/* header */
+.hdr{padding:26px 4px 20px;color:#fff;text-align:center}
+.hdr h1{font-size:27px;line-height:1.18;font-weight:800;letter-spacing:-.5px;margin-bottom:12px}
+.hdr .sub{font-size:15px;line-height:1.6;color:#c7d3dd}
+.hdr .who{margin-top:14px;font-size:12px;letter-spacing:1px;color:#8fa3b3}
+
+/* tarjetas */
+.card{position:relative;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 18px 44px rgba(0,0,0,.38),0 3px 10px rgba(0,0,0,.25);margin-top:16px;scroll-margin-top:72px;border:2px solid transparent;transition:border-color .2s}
+.card:before{content:"";display:block;height:4px;background:linear-gradient(90deg,#5ac8fa,#48c9b0)}
+.card-in{padding:20px 18px 20px}
+.kick{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:bold;letter-spacing:2px;text-transform:uppercase;color:#666;margin-bottom:8px;min-height:18px}
+.kick:before{content:"";flex:none;width:7px;height:7px;border-radius:50%;background:#5ac8fa}
+.kick .ok{display:none;width:18px;height:18px;border-radius:50%;background:#eefaf6;border:1.5px solid #48c9b0;align-items:center;justify-content:center}
+.card.is-done .kick .ok{display:inline-flex}
+.card h2,.card legend{font-size:18px;line-height:1.35;font-weight:bold;color:#152735;margin-bottom:6px}
+.card legend{padding:0}
+.desc{font-size:14px;line-height:1.55;color:#666;margin-bottom:12px}
+fieldset{border:0;min-width:0}
+.opts{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+.opt{position:relative;display:flex;align-items:center;gap:12px;min-height:52px;padding:12px 14px;border:1.5px solid #d7e0e8;border-radius:12px;background:#f8fafb;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:border-color .15s,background .15s,box-shadow .15s}
+.opt input{position:absolute;opacity:0;width:1px;height:1px;left:0;top:0}
+.opt .mark{flex:none;width:22px;height:22px;border-radius:50%;border:2px solid #b9c6d0;background:#fff;display:flex;align-items:center;justify-content:center;transition:border-color .15s,background .15s}
+.opt .mark svg{display:none}
+.opt .txt{font-size:15px;line-height:1.4;color:#313131}
+.opt .tag{display:inline-block;margin-left:8px;font-size:10px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;color:#152735;background:#eefaf6;border:1px solid #48c9b0;padding:2px 7px;border-radius:999px;vertical-align:middle}
+.opt.is-lock{opacity:.6;cursor:default}
+.opt:active{background:#f0f5f8}
+.opt.is-sel{border-color:#48c9b0;background:#eefaf6}
+.opt.is-sel .mark{border-color:#48c9b0;background:#48c9b0}
+.opt.is-sel .mark svg{display:block}
+.opt input:focus-visible ~ .mark{box-shadow:0 0 0 4px rgba(90,200,250,.35)}
+
+/* campos */
+.f{margin-top:12px}
+.f label{display:block;font-size:13px;font-weight:bold;color:#152735;margin-bottom:6px}
+.f input,.f select,.f textarea{width:100%;padding:14px 15px;font-size:16px;border:1.5px solid #d7e0e8;border-radius:12px;background:#f8fafb;color:#313131;outline:none;font-family:inherit;transition:border-color .2s,background .2s,box-shadow .2s;-webkit-appearance:none;appearance:none}
+.f select{background-image:url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='20' height='20'%3E%3Cpath d='M7 10l5 5 5-5z' fill='%23666'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:40px}
+.f select:invalid,.f select.is-empty{color:#9aa7b1}
+.f textarea{min-height:96px;resize:vertical;line-height:1.5}
+.f input::placeholder,.f textarea::placeholder{color:#9aa7b1}
+.f input:focus,.f select:focus,.f textarea:focus{border-color:#5ac8fa;background:#fff;box-shadow:0 0 0 4px rgba(90,200,250,.15)}
+.f.is-bad input,.f.is-bad select{border-color:#c0392b;background:#fff8f6}
+.f.is-ok input,.f.is-ok select{border-color:#48c9b0}
+.ferr{display:none;font-size:13px;color:#c0392b;margin-top:6px}
+.f.is-bad .ferr{display:block}
+.count{text-align:right;font-size:12px;color:#666;margin-top:5px}
+.hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none}
+
+/* error de tarjeta */
+.card.is-error{border-color:#c0392b}
+.cerr{display:none;align-items:center;gap:8px;font-size:13px;color:#c0392b;margin-top:12px;font-weight:bold}
+.card.is-error .cerr{display:flex}
+
+/* botón principal */
+.btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:56px;padding:16px 22px;font-size:16px;font-weight:bold;letter-spacing:.8px;cursor:pointer;border:none;border-radius:30px;color:#fff;background:linear-gradient(180deg,#ef8a2e,#E67E22);box-shadow:0 10px 24px rgba(230,126,34,.38);font-family:inherit;transition:transform .12s,box-shadow .2s,filter .2s,opacity .2s;-webkit-tap-highlight-color:transparent}
+.btn:hover{filter:brightness(1.05)}
+.btn:active{transform:translateY(1px);box-shadow:0 5px 14px rgba(230,126,34,.35)}
+.btn:focus-visible{outline:3px solid #5ac8fa;outline-offset:3px}
+.btn.is-off{opacity:.55;box-shadow:none}
+.btn:disabled{opacity:.7;cursor:default;transform:none}
+.btn.sec{background:#fff;color:#152735;border:2px solid #5ac8fa;box-shadow:none}
+.submit{margin-top:22px}
+.micro{display:flex;align-items:flex-start;justify-content:center;gap:7px;font-size:13px;line-height:1.5;color:#9fb2c1;margin-top:14px;text-align:center;padding:0 6px}
+.micro svg{flex:none;margin-top:2px}
+.net{display:none;margin-top:14px;padding:14px 16px;border-radius:12px;background:#fef6ee;border-left:4px solid #E67E22;color:#313131;font-size:14px;line-height:1.5}
+.net.show{display:block}
+.net.info{background:rgba(90,200,250,.12);border-left-color:#5ac8fa}
+.net button{margin-top:10px;min-height:44px;padding:10px 18px;font-size:14px}
+.spin{width:18px;height:18px;border-radius:50%;border:3px solid rgba(255,255,255,.35);border-top-color:#fff;animation:sp .8s linear infinite;flex:none}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* resultado */
+.res{display:none;padding-top:22px}
+.res.show{display:block}
+.res .card{margin-top:0}
+.res .card-in{padding:26px 20px 24px;text-align:center}
+.ric{width:70px;height:70px;border-radius:50%;margin:4px auto 18px;display:flex;align-items:center;justify-content:center;background:#eefaf6;border:2px solid #48c9b0}
+.ric.warn{background:rgba(90,200,250,.12);border-color:#5ac8fa}
+.res h2{font-size:23px;line-height:1.25;color:#152735;margin-bottom:12px}
+.res .rdesc{font-size:15px;line-height:1.65;color:#666;text-align:left}
+.res .rdesc a{color:#152735;font-weight:bold;word-break:break-all}
+.res .btn{margin-top:20px;text-decoration:none}
+.res .name{font-size:12px;letter-spacing:2px;text-transform:uppercase;font-weight:bold;color:#666;margin-bottom:10px}
+.res .name:before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:#5ac8fa;margin-right:8px;vertical-align:middle}
+.res h2:focus{outline:none}
+.res .opts{text-align:left}
+.res .f{text-align:left}
+.res .sub-card{margin-top:16px;padding-top:16px;border-top:1px solid #e6ecf0;text-align:left}
+.res h2.q{text-align:left;font-size:19px}
+.res .sub-card h3{font-size:16px;color:#152735;line-height:1.35;margin-bottom:6px}
+.res .desc{white-space:pre-line}
+.foot{text-align:center;margin-top:36px;font-size:12px;letter-spacing:1.5px;color:#5f7588}
+.mock{display:none;margin:14px 0 -4px;padding:10px 14px;border-radius:10px;background:rgba(230,126,34,.16);border:1px solid rgba(230,126,34,.6);color:#fff;font-size:12px;letter-spacing:1px;text-transform:uppercase;font-weight:bold;text-align:center}
+.mock.show{display:block}
+@media(min-width:600px){.hdr{padding-top:36px}.hdr h1{font-size:32px}.card-in{padding:24px 26px}.res .card-in{padding:32px 30px 28px}}
+</style>
+</head>
+<body>
+<div class="bg" aria-hidden="true"></div>
+<div class="wrap">
+
+  <div class="prog" id="prog" role="status" aria-live="polite">
+    <div class="prog-row"><span>Tu avance</span><span><strong id="progN">0</strong> de 8 respondidas</span></div>
+    <div class="prog-bar"><div class="prog-fill" id="progFill"></div></div>
+  </div>
+
+  <header class="hdr" id="hdr">
+    <h1>¿Te cuesta lograr o mantener la erección con otra persona?</h1>
+    <p class="sub">Respondé estas preguntas (2 minutos) para ver si el programa Controla tu Mente, Recupera tu Erección es lo que necesitás ahora. Es información confidencial — solo la usamos para evaluar tu caso.</p>
+    <p class="who">Urólogo Mauro Carrillo · urologia.ar</p>
+    <div class="mock" id="mockNote" hidden>Modo prueba: no se envía nada al servidor</div>
+  </header>
+
+  <form id="form" novalidate autocomplete="on">
+
+    <!-- Tarjeta 1: datos -->
+    <section class="card" id="c0" data-card="datos">
+      <div class="card-in">
+        <div class="kick"><span>Tus datos</span><span class="ok" aria-hidden="true"><svg viewBox="0 0 24 24" width="11" height="11"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#48c9b0"/></svg></span></div>
+        <div class="f" id="fName">
+          <label for="name">¿Cómo te llamás?</label>
+          <input type="text" id="name" name="name" placeholder="Tu nombre" autocomplete="given-name" maxlength="80" required>
+          <div class="ferr" id="eName">Escribí tu nombre.</div>
+        </div>
+        <div class="f" id="fEmail">
+          <label for="email">¿Cuál es tu mejor email para contactarte?</label>
+          <input type="email" id="email" name="email" placeholder="tu@email.com" autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false" maxlength="120" required>
+          <div class="ferr" id="eEmail">Revisá tu email, parece que tiene un error.</div>
+        </div>
+        <div class="f" id="fEmail2">
+          <label for="email2">Confirmá tu email</label>
+          <input type="email" id="email2" name="email2" placeholder="Repetí tu email" autocomplete="off" inputmode="email" autocapitalize="off" spellcheck="false" maxlength="120" required>
+          <div class="ferr" id="eEmail2">Los emails no coinciden</div>
+        </div>
+        <div class="f" id="fPais">
+          <label for="pais">País</label>
+          <select id="pais" name="pais" required class="is-empty">
+            <option value="" disabled selected>Elegí tu país</option>
+            <option value="AR">Argentina</option>
+            <option value="MX">México</option>
+            <option value="PE">Perú</option>
+            <option value="CL">Chile</option>
+            <option value="CO">Colombia</option>
+            <option value="UY">Uruguay</option>
+            <option value="PY">Paraguay</option>
+            <option value="BO">Bolivia</option>
+            <option value="EC">Ecuador</option>
+            <option value="VE">Venezuela</option>
+            <option value="ES">España</option>
+            <option value="US">Estados Unidos</option>
+            <option value="BR">Brasil</option>
+            <option value="GT">Guatemala</option>
+            <option value="CR">Costa Rica</option>
+            <option value="PA">Panamá</option>
+            <option value="DO">República Dominicana</option>
+            <option value="SV">El Salvador</option>
+            <option value="HN">Honduras</option>
+            <option value="NI">Nicaragua</option>
+            <option value="CU">Cuba</option>
+            <option value="PR">Puerto Rico</option>
+            <option value="XX">Otro</option>
+          </select>
+          <div class="ferr" id="ePais">Elegí tu país.</div>
+        </div>
+        <input type="text" name="_hp" id="hp" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+        <div class="cerr" id="cerr0">Completá tus datos para seguir.</div>
+      </div>
+    </section>
+
+    <!-- P1 -->
+    <section class="card" id="c1" data-card="p1">
+      <div class="card-in">
+        <div class="kick"><span>Pregunta 1</span><span class="ok" aria-hidden="true"><svg viewBox="0 0 24 24" width="11" height="11"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#48c9b0"/></svg></span></div>
+        <fieldset>
+          <legend>¿En qué rango de edad estás?</legend>
+          <div class="opts">
+            <label class="opt"><input type="radio" name="p1" value="a" required><span class="mark"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#fff"/></svg></span><span class="txt">18 - 49 años</span></label>
+            <label class="opt"><input type="radio" name="p1" value="b"><span class="mark"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#fff"/></svg></span><span class="txt">50 años o más</span></label>
+          </div>
+        </fieldset>
+        <div class="cerr">Elegí una opción.</div>
+      </div>
+    </section>
+
+    <!-- P2 -->
+    <section class="card" id="c2" data-card="p2">
+      <div class="card-in">
+        <div class="kick"><span>Pregunta 2</span><span class="ok" aria-hidden="true"><svg viewBox="0 0 24 24" width="11" height="11"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#48c9b0"/></svg></span></div>
+        <fieldset>
+          <legend>¿Tu erección funciona bien cuando estás solo (autoestimulación) o tenés erecciones espontáneas (noche/mañana)?</legend>
+          <div class="opts">
+            <label class="opt"><input type="radio" name="p2" value="a" required><span class="mark"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#fff"/></svg></span><span class="txt">Sí, casi siempre</span></label>
+            <label class="opt"><input type="radio" name="p2" value="b"><span class="mark"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#fff"/></svg></span><span class="txt">A veces sí, a veces no — especialmente cuando intento "ponerme a prueba" para ver si funciona</span></label>
+            <label class="opt"><input type="radio" name="p2" value="c"><span class="mark"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#fff"/></svg></span><span class="txt">No, casi nunca</span></label>
+          </div>
+        </fieldset>
+        <div class="cerr">Elegí una opción.</div>
+      </div>
+    </section>
+
+    <!-- P3 -->
+    <section class="card" id="c3" data-card="p3">
+      <div class="card-in">
+        <div class="kick"><span>Pregunta 3</span><span class="ok" aria-hidden="true"><svg viewBox="0 0 24 24" width="11" height="11"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#48c9b0"/></svg></span></div>
+        <fieldset>
+          <legend>En cuanto a tu salud general, ¿con cuál te identificás más?</legend>
+          <div class="opts">
+            <label class="opt"><input type="radio" name="p3" value="a" required><span class="mark"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#fff"/></svg></span><span class="txt">No tengo enfermedades crónicas importantes, o tengo solo 1 condición controlada</span></label>
+            <label class="opt"><input type="radio" name="p3" value="b"><span class="mark"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#fff"/></svg></span><span class="txt">Tengo enfermedad/es de base (diabetes, HTA, dislipemia) o tomo +2 medicamentos crónicos al día, o tuve cirugía pelviana</span></label>
+            <label class="opt"><input type="radio" name="p3" value="c"><span class="mark"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#fff"/></svg></span><span class="txt">Tengo varias de esas condiciones <strong>y</strong> el problema de erección apareció cerca del momento del diagnóstico</span></label>
+          </div>
+        </fieldset>
+        <div class="cerr">Elegí una opción.</div>
+      </div>
+    </section>
+
+    <!-- P4 -->
+    <section class="card" id="c4" data-card="p4">
+      <div class="card-in">
+        <div class="kick"><span>Pregunta 4</span><span class="ok" aria-hidden="true"><svg viewBox="0 0 24 24" width="11" height="11"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#48c9b0"/></svg></span></div>
+        <fieldset>
+          <legend>¿Cómo es tu situación de pareja hoy?</legend>
+          <div class="opts">
+            <label class="opt"><input type="radio" name="p4" value="a" required><span class="mark"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#fff"/></svg></span><span class="txt">No tengo pareja estable (soltero, encuentros casuales u ocasionales)</span></label>
+            <label class="opt"><input type="radio" name="p4" value="b"><span class="mark"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#fff"/></svg></span><span class="txt">Tengo pareja estable y la relación es buena (con o sin convivencia)</span></label>
+            <label class="opt"><input type="radio" name="p4" value="c"><span class="mark"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#fff"/></svg></span><span class="txt">Tengo pareja estable pero hay problemas recientes, monotonía importante, o atravesamos una crisis vital</span></label>
+          </div>
+        </fieldset>
+        <div class="cerr">Elegí una opción.</div>
+      </div>
+    </section>
+
+    <!-- P5 -->
+    <section class="card" id="c5" data-card="p5">
+      <div class="card-in">
+        <div class="kick"><span>Pregunta 5</span><span class="ok" aria-hidden="true"><svg viewBox="0 0 24 24" width="11" height="11"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#48c9b0"/></svg></span></div>
+        <fieldset>
+          <legend>¿Cuánto consumís de redes sociales y/o pornografía al día?</legend>
+          <p class="desc">Si tuviste un periodo problemático reciente (últimos 6 meses), respondé por ese periodo.</p>
+          <div class="opts">
+            <label class="opt"><input type="radio" name="p5" value="a" required><span class="mark"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#fff"/></svg></span><span class="txt">Más de 1 hora diaria o más de lo que me gustaría</span></label>
+            <label class="opt"><input type="radio" name="p5" value="b"><span class="mark"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#fff"/></svg></span><span class="txt">Diariamente pero poco tiempo, siento que lo controlo</span></label>
+            <label class="opt"><input type="radio" name="p5" value="c"><span class="mark"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#fff"/></svg></span><span class="txt">Ocasional o no consumo</span></label>
+          </div>
+        </fieldset>
+        <div class="cerr">Elegí una opción.</div>
+      </div>
+    </section>
+
+    <!-- P6 -->
+    <section class="card" id="c6" data-card="p6">
+      <div class="card-in">
+        <div class="kick"><span>Pregunta 6</span><span class="ok" aria-hidden="true"><svg viewBox="0 0 24 24" width="11" height="11"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#48c9b0"/></svg></span></div>
+        <fieldset>
+          <legend>¿Te comprometés a dedicar 15-30 minutos diarios a las prácticas del programa durante al menos 8 semanas para lograr una transformación real y sostenida?</legend>
+          <div class="opts">
+            <label class="opt"><input type="radio" name="p6" value="a" required><span class="mark"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#fff"/></svg></span><span class="txt">Sí, me comprometo</span></label>
+            <label class="opt"><input type="radio" name="p6" value="b"><span class="mark"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#fff"/></svg></span><span class="txt">Voy a intentarlo</span></label>
+            <label class="opt"><input type="radio" name="p6" value="c"><span class="mark"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#fff"/></svg></span><span class="txt">No tengo esa disponibilidad</span></label>
+          </div>
+        </fieldset>
+        <div class="cerr">Elegí una opción.</div>
+      </div>
+    </section>
+
+    <!-- P7 -->
+    <section class="card" id="c7" data-card="p7">
+      <div class="card-in">
+        <div class="kick"><span>Pregunta 7</span><span class="ok" aria-hidden="true"><svg viewBox="0 0 24 24" width="11" height="11"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#48c9b0"/></svg></span></div>
+        <fieldset>
+          <legend>En este momento de tu vida, ¿estás dispuesto a invertir en tu salud y calidad de vida íntima?</legend>
+          <div class="opts">
+            <label class="opt"><input type="radio" name="p7" value="a" required><span class="mark"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#fff"/></svg></span><span class="txt">Sí, es prioridad y estoy dispuesto a invertir en mejorar de una vez por todas</span></label>
+            <label class="opt"><input type="radio" name="p7" value="b"><span class="mark"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#fff"/></svg></span><span class="txt">Me importa pero estoy ajustado de ingresos y/o tiempos</span></label>
+            <label class="opt"><input type="radio" name="p7" value="c"><span class="mark"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z" fill="#fff"/></svg></span><span class="txt">Tengo otras prioridades o en este momento no puedo</span></label>
+          </div>
+        </fieldset>
+        <div class="cerr">Elegí una opción.</div>
+      </div>
+    </section>
+
+    <!-- Tarjeta 9: opcional -->
+    <section class="card" id="c8" data-card="verbatim">
+      <div class="card-in">
+        <div class="kick"><span>Opcional</span></div>
+        <h2>Si querés, contame en una línea qué te pasa</h2>
+        <div class="f">
+          <label for="verbatim" class="hp">Contame en una línea qué te pasa</label>
+          <textarea id="verbatim" name="verbatim" maxlength="300" rows="3" placeholder="Escribilo con tus palabras"></textarea>
+          <div class="count"><span id="vcount">0</span>/300</div>
+        </div>
+      </div>
+    </section>
+
+    <div class="submit">
+      <button type="submit" class="btn is-off" id="btn"><span id="btnTxt">Ver mi resultado</span><svg id="btnArrow" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M8.6 4.6 7.2 6l6 6-6 6 1.4 1.4L16 12z" fill="#fff"/></svg></button>
+      <div class="net" id="net" role="alert"></div>
+      <p class="micro"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M12 2 4 5.5v5.1c0 5 3.4 9.7 8 10.9 4.6-1.2 8-5.9 8-10.9V5.5L12 2zm-1.3 14.6-3.5-3.5 1.4-1.4 2.1 2.1 4.7-4.7 1.4 1.4-6.1 6.1z" fill="#9fb2c1"/></svg>Tus respuestas son confidenciales. Solo las uso para evaluar tu caso.</p>
+    </div>
+  </form>
+
+  <div class="res" id="res" aria-live="polite"></div>
+
+  <p class="foot" id="foot">UROLOGIA.AR</p>
+</div>
+
+<script>
+(function(){
+'use strict';
+var ENDPOINT='/api/form/test-programa';
+var LANDING='https://urologia.ar/recuperatuereccion/';
+var UTM='?utm_source=test&utm_campaign=cohorte2-lanzamiento&utm_content=';
+var CALENDLY='https://calendly.com/urologocarrillo';
+var MAIL='recuperatuereccion@urologia.ar';
+var TOTAL=8;
+var QS=['p1','p2','p3','p4','p5','p6','p7'];
+
+var $=function(id){return document.getElementById(id)};
+var form=$('form'),btn=$('btn'),btnTxt=$('btnTxt'),btnArrow=$('btnArrow'),net=$('net'),res=$('res');
+var fName=$('name'),fEmail=$('email'),fEmail2=$('email2'),fPais=$('pais'),fHp=$('hp'),fVerb=$('verbatim');
+var cards=[].slice.call(form.querySelectorAll('.card'));
+var touched={},partialEmails=[],sending=false,contactoBusy=false;
+var TIMEOUT=15000;
+
+/* ---------- utilidades ---------- */
+function el(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
+function param(k){try{return new URLSearchParams(window.location.search).get(k)||''}catch(e){return ''}}
+function validEmail(v){return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v)}
+function norm(v){return String(v||'').trim().toLowerCase()}
+function scrollToEl(node){try{node.scrollIntoView({behavior:'smooth',block:'start'})}catch(e){node.scrollIntoView()}}
+function nextCardOf(card){var i=cards.indexOf(card);return i>-1&&i<cards.length-1?cards[i+1]:null}
+function goNext(card){var n=nextCardOf(card);setTimeout(function(){if(n)scrollToEl(n);else scrollToEl(btn.parentNode)},180)}
+
+var SRC=(function(){var s=param('src').toLowerCase().replace(/[^a-z0-9\-_]/g,'').slice(0,40);return s||'web'})();
+var MOCK=(function(){
+  var m=param('mock').toLowerCase();if(!m)return null;
+  var map={a:'A-Limpia',aaju:'A-Cuotas',aotras:'A-Nurture',bauto:'B-AUTO',bcontacto:'B-CONTACTO',cp2:'C-P2c',cp3:'C-P3c',cp6:'C-P6c',cscore:'C-ScoreBajo'};
+  var v=map[m];if(!v)return null;
+  return {variante:v,pantalla:v.indexOf('A-')===0?'A':v.indexOf('C-')===0?'C':v};
+})();
+
+/* ---------- red ---------- */
+function post(data){
+  if(MOCK){
+    return new Promise(function(ok){setTimeout(function(){
+      if(data.step==='final')ok({ok:true,pantalla:MOCK.pantalla,variante:MOCK.variante});else ok({ok:true});
+    },700)});
+  }
+  var opts={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),keepalive:data.step==='partial'};
+  var ac=null,timer=null;
+  if(typeof AbortController==='function'){ac=new AbortController();opts.signal=ac.signal;timer=setTimeout(function(){ac.abort()},TIMEOUT)}
+  return fetch(ENDPOINT,opts)
+    .then(function(r){return r.json().catch(function(){return {}}).then(function(d){
+      if(!r.ok&&!(d&&typeof d.error==='string'))d={ok:false};return d;
+    })})
+    .then(function(d){if(timer)clearTimeout(timer);return d},function(e){if(timer)clearTimeout(timer);throw e});
+}
+function errMsg(r){return r&&typeof r.error==='string'&&r.error.trim()?r.error.trim().slice(0,200):null}
+function baseData(){return {name:fName.value.trim(),email:fEmail.value.trim(),pais:fPais.value,src:SRC,_hp:fHp.value}}
+function sendPartial(){
+  if(MOCK||!datosValid())return;
+  var em=norm(fEmail.value);
+  if(partialEmails.indexOf(em)>-1||partialEmails.length>=3)return;
+  partialEmails.push(em);
+  var d=baseData();d.step='partial';
+  try{post(d).catch(function(){})}catch(e){}
+}
+
+/* ---------- país por zona horaria ---------- */
+(function prefillPais(){
+  var tz='';try{tz=Intl.DateTimeFormat().resolvedOptions().timeZone||''}catch(e){}
+  var cc='';
+  if(tz.indexOf('America/Argentina/')===0||/^America\/(Buenos_Aires|Cordoba|Mendoza|Catamarca|Jujuy|Rosario)$/.test(tz))cc='AR';
+  else{
+    var map={'America/Mexico_City':'MX','America/Cancun':'MX','America/Monterrey':'MX','America/Tijuana':'MX','America/Merida':'MX','America/Chihuahua':'MX','America/Hermosillo':'MX','America/Mazatlan':'MX','America/Matamoros':'MX','America/Bahia_Banderas':'MX','America/Ojinaga':'MX','America/Ciudad_Juarez':'MX',
+      'America/Lima':'PE','America/Santiago':'CL','America/Punta_Arenas':'CL','Pacific/Easter':'CL','America/Bogota':'CO','America/Montevideo':'UY','America/Asuncion':'PY','America/La_Paz':'BO','America/Guayaquil':'EC','Pacific/Galapagos':'EC','America/Caracas':'VE','Europe/Madrid':'ES','Atlantic/Canary':'ES','Africa/Ceuta':'ES',
+      'America/New_York':'US','America/Chicago':'US','America/Denver':'US','America/Los_Angeles':'US','America/Phoenix':'US','America/Detroit':'US','America/Anchorage':'US','America/Boise':'US','America/Juneau':'US','America/Sitka':'US','America/Nome':'US','America/Yakutat':'US','America/Metlakatla':'US','America/Menominee':'US','America/Adak':'US','Pacific/Honolulu':'US',
+      'America/Sao_Paulo':'BR','America/Fortaleza':'BR','America/Recife':'BR','America/Bahia':'BR','America/Manaus':'BR','America/Belem':'BR','America/Maceio':'BR','America/Cuiaba':'BR','America/Campo_Grande':'BR','America/Porto_Velho':'BR','America/Boa_Vista':'BR','America/Rio_Branco':'BR','America/Araguaina':'BR','America/Santarem':'BR','America/Noronha':'BR','America/Eirunepe':'BR',
+      'America/Guatemala':'GT','America/Costa_Rica':'CR','America/Panama':'PA','America/Santo_Domingo':'DO','America/El_Salvador':'SV','America/Tegucigalpa':'HN','America/Managua':'NI','America/Havana':'CU','America/Puerto_Rico':'PR'};
+    cc=map[tz]||'';
+    if(!cc&&/^America\/(Indiana|Kentucky|North_Dakota)\//.test(tz))cc='US';
+  }
+  if(cc){fPais.value=cc;fPais.classList.remove('is-empty')}
+})();
+
+/* ---------- validación tarjeta datos ---------- */
+function datosValid(){
+  return fName.value.trim().length>0&&validEmail(fEmail.value.trim())&&norm(fEmail.value)===norm(fEmail2.value)&&fPais.value!=='';
+}
+function setField(id,ok,show){var f=$(id);f.classList.remove('is-ok','is-bad');if(ok)f.classList.add('is-ok');else if(show)f.classList.add('is-bad')}
+function validateDatos(force){
+  var name=fName.value.trim(),em=fEmail.value.trim(),em2=fEmail2.value.trim();
+  var okName=name.length>0,okEm=validEmail(em),okEm2=em2.length>0&&norm(em)===norm(em2),okPais=fPais.value!=='';
+  setField('fName',okName,force||touched.name);
+  setField('fEmail',okEm,force||touched.email);
+  setField('fEmail2',okEm2,force||touched.email2||(em2.length>0&&em2.length>=em.length));
+  setField('fPais',okPais,force||touched.pais);
+  var all=okName&&okEm&&okEm2&&okPais;
+  cards[0].classList.toggle('is-done',all);
+  if(all)cards[0].classList.remove('is-error');
+  return all;
+}
+var ORDER=[fName,fEmail,fEmail2,fPais];
+[fName,fEmail,fEmail2].forEach(function(f,i){
+  f.addEventListener('input',function(){validateDatos(false);update()});
+  f.addEventListener('blur',function(){touched[f.id]=true;validateDatos(false);update()});
+  f.addEventListener('keydown',function(ev){if(ev.key==='Enter'){ev.preventDefault();try{ORDER[i+1].focus()}catch(e){}}});
+});
+/* ninguna tecla Enter en un input del formulario dispara el envío implícito: solo el botón envía */
+form.addEventListener('keydown',function(ev){
+  var t=ev.target;
+  if(ev.key==='Enter'&&t&&t.tagName==='INPUT')ev.preventDefault();
+});
+fPais.addEventListener('change',function(){
+  touched.pais=true;fPais.classList.toggle('is-empty',fPais.value==='');
+  validateDatos(false);update();
+  if(datosValid()){sendPartial();goNext(cards[0])}
+});
+cards[0].addEventListener('focusout',function(ev){
+  var to=ev.relatedTarget;
+  if(to&&cards[0].contains(to))return;
+  setTimeout(function(){
+    if(document.activeElement&&cards[0].contains(document.activeElement))return;
+    if(datosValid()){sendPartial();if(!answered('p1'))goNext(cards[0])}
+  },60);
+});
+
+/* ---------- radios ---------- */
+function answered(q){return !!form.querySelector('input[name="'+q+'"]:checked')}
+function val(q){var r=form.querySelector('input[name="'+q+'"]:checked');return r?r.value:''}
+form.addEventListener('change',function(ev){
+  var t=ev.target;if(!t||t.type!=='radio')return;
+  var card=t.closest('.card');if(!card)return;
+  [].forEach.call(card.querySelectorAll('.opt'),function(o){o.classList.toggle('is-sel',o.querySelector('input').checked)});
+  var was=card.classList.contains('is-done');
+  card.classList.add('is-done');card.classList.remove('is-error');
+  sendPartial();update();if(!was)goNext(card);
+});
+
+/* ---------- textarea ---------- */
+fVerb.addEventListener('input',function(){$('vcount').textContent=String(fVerb.value.length)});
+
+/* ---------- estado global ---------- */
+function count(){var n=datosValid()?1:0;QS.forEach(function(q){if(answered(q))n++});return n}
+function allValid(){return datosValid()&&QS.every(answered)}
+function update(){
+  var n=count();
+  $('progN').textContent=String(n);
+  $('progFill').style.width=(n/TOTAL*100)+'%';
+  var ok=allValid();
+  btn.classList.toggle('is-off',!ok);
+}
+function firstError(){
+  if(!validateDatos(true)){cards[0].classList.add('is-error');return cards[0]}
+  for(var i=0;i<QS.length;i++){if(!answered(QS[i])){var c=cards[i+1];c.classList.add('is-error');return c}}
+  return null;
+}
+
+/* ---------- envío final ---------- */
+function setLoading(on){
+  sending=on;btn.disabled=on;
+  btnTxt.textContent=on?'Analizando tus respuestas…':'Ver mi resultado';
+  btnArrow.style.display=on?'none':'';
+  var old=btn.querySelector('.spin');if(old)old.remove();
+  if(on){var s=el('span','spin');s.setAttribute('aria-hidden','true');btn.appendChild(s)}
+}
+function showNet(msg){
+  net.textContent='';
+  net.appendChild(el('div',null,msg||'No pudimos enviar tus respuestas. Revisá tu conexión y probá de nuevo.'));
+  var b=el('button','btn sec','Reintentar');b.type='button';b.addEventListener('click',function(){net.classList.remove('show');send()});
+  net.appendChild(b);net.classList.add('show');
+}
+function send(){
+  if(sending)return;
+  var d=baseData();d.step='final';
+  QS.forEach(function(q){d[q]=val(q)});
+  d.verbatim=fVerb.value.trim().slice(0,300);
+  setLoading(true);net.classList.remove('show');
+  post(d).then(function(r){
+    setLoading(false);
+    if(r&&r.ok===true){render(r)}else{showNet(errMsg(r))}
+  }).catch(function(){setLoading(false);showNet(null)});
+}
+form.addEventListener('submit',function(ev){
+  ev.preventDefault();
+  var bad=firstError();
+  if(bad){scrollToEl(bad);var ctl=bad.querySelector('.is-bad input,.is-bad select')||bad.querySelector('input[type=radio]');if(ctl)setTimeout(function(){try{ctl.focus({preventScroll:true})}catch(e){}},400);return}
+  send();
+});
+
+/* ---------- pantallas finales ---------- */
+var SCREENS={
+  'A-Limpia':{t:'Listo — este programa es para vos',d:'Por lo que me contás, sos buen candidato y estás en el momento justo. Acá tenés todos los detalles del programa y cómo inscribirte.',b:'Quiero inscribirme',u:LANDING+UTM+'form-a-prio'},
+  'A-Cuotas':{t:'Este programa es para vos',d:'Por lo que me contás, sos buen candidato. En Argentina podés pagarlo en 3 cuotas sin interés con Mercado Pago. En otros países según disponibilidad de tu banco. Acá tenés los detalles.',b:'Quiero inscribirme',u:LANDING+UTM+'form-a-aju'},
+  'A-Nurture':{t:'Este programa es para vos cuando estés listo',d:'Por lo que me contás sos buen candidato, aunque hoy tenés otras prioridades. Cuando estés listo vamos a estar acá. Si querés, mirá los detalles del programa — y si preferís, te avisamos cuando abramos la próxima cohorte.',b:'Ver detalles del programa',u:LANDING+UTM+'form-a-otras'},
+  'B-AUTO':{t:'Este programa puede ayudarte',d:'Mirá la información del programa con calma. Cuando te decidas, accedés desde esta página (botón de abajo). Si tenés dudas puntuales antes, escribime a '+MAIL,b:'Ver el programa',u:LANDING+UTM+'form-bauto'},
+  'B-MEET':{t:'Perfecto — agendamos por Meet',d:'Tocá el botón para elegir tu horario. Al reservar, te llega el link del Meet por mail.',b:'Agendar Meet',u:CALENDLY+'/programa'},
+  'B-CONFIRMADO':{t:'Listo — te contacto pronto',d:'Recibí toda tu info. Te contacto en los próximos días en el horario que indicaste. Mientras tanto, podés ver los detalles del programa si querés ir mirando.',b:'Ver programa mientras tanto',u:LANDING+UTM+'form-bcontacto'},
+  'C-P2c':{t:'Te sugiero una consulta individual primero',d:'No tenés erecciones espontáneas ni cuando estás solo, lo que sugiere componente orgánico. Aunque el programa puede ayudarte, probablemente no sea suficiente para vos solo en este momento. Te sugiero primero una consulta individual conmigo para evaluar a fondo. Si querés hacer el programa igual, podés — pero hacelo entendiendo que probablemente necesites algo más (consulta, evaluación específica o trabajo paralelo). Si igual querés conocer el programa: '+LANDING,b:'Agendar consulta individual',u:CALENDLY,c:true},
+  'C-P3c':{t:'Te sugiero una consulta individual primero',d:'El problema de erección apareció cerca del momento de tu diagnóstico médico. Aunque el programa puede ayudarte, probablemente no sea suficiente para vos solo en este momento. Te sugiero primero una consulta individual conmigo para evaluar a fondo el componente orgánico relacionado. Si querés hacer el programa igual, podés — pero hacelo entendiendo que probablemente necesites algo más (consulta, evaluación específica o trabajo paralelo). Si igual querés conocer el programa: '+LANDING,b:'Agendar consulta individual',u:CALENDLY,c:true},
+  'C-P6c':{t:'Una consulta individual te sirve más ahora',d:'Sin disponibilidad de 15-30 minutos diarios, el programa no rinde. Aunque el programa puede ayudarte, probablemente no sea suficiente para vos solo en este momento. Te sugiero primero una consulta individual conmigo para abordar tu caso puntual sin la exigencia del programa. Si querés hacer el programa igual, podés — pero hacelo entendiendo que probablemente necesites algo más (consulta, evaluación específica o trabajo paralelo). Si igual querés conocer el programa: '+LANDING,b:'Agendar consulta individual',u:CALENDLY,c:true},
+  'C-ScoreBajo':{t:'Te sugiero una consulta individual primero',d:'Hay varios factores que conviene abordar antes (orgánicos, vinculares o de momento de vida). Aunque el programa puede ayudarte, probablemente no sea suficiente para vos solo en este momento. Te sugiero primero una consulta individual conmigo para evaluar a fondo y ver qué camino te sirve más. Si querés hacer el programa igual, podés — pero hacelo entendiendo que probablemente necesites algo más (consulta, evaluación específica o trabajo paralelo). Si igual querés conocer el programa: '+LANDING,b:'Agendar consulta individual',u:CALENDLY,c:true}
+};
+var CHECK='M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z';
+function svgIcon(path,size,fill){var s=document.createElementNS('http://www.w3.org/2000/svg','svg');s.setAttribute('viewBox','0 0 24 24');s.setAttribute('width',size);s.setAttribute('height',size);s.setAttribute('aria-hidden','true');var p=document.createElementNS('http://www.w3.org/2000/svg','path');p.setAttribute('d',path);p.setAttribute('fill',fill);s.appendChild(p);return s}
+/* texto plano + links clickeables para la URL de la landing y el mail (solo constantes, nunca datos del usuario) */
+function richDesc(text){
+  var p=el('p','rdesc');
+  var tokens=[{s:LANDING,h:LANDING},{s:MAIL,h:'mailto:'+MAIL}];
+  var rest=text;
+  while(rest.length){
+    var best=null;
+    tokens.forEach(function(tk){var i=rest.indexOf(tk.s);if(i>-1&&(!best||i<best.i))best={i:i,tk:tk}});
+    if(!best){p.appendChild(document.createTextNode(rest));break}
+    if(best.i>0)p.appendChild(document.createTextNode(rest.slice(0,best.i)));
+    var a=el('a',null,best.tk.s);a.href=best.tk.h;if(best.tk.h.indexOf('http')===0){a.target='_blank';a.rel='noopener'}
+    p.appendChild(a);rest=rest.slice(best.i+best.tk.s.length);
+  }
+  return p;
+}
+function focusResult(){
+  var h=res.querySelector('h2');if(!h)return;
+  h.setAttribute('tabindex','-1');
+  setTimeout(function(){try{h.focus({preventScroll:true})}catch(e){}},450);
+}
+function shell(){
+  form.hidden=true;$('prog').hidden=true;$('hdr').hidden=true;$('foot').hidden=true;
+  res.textContent='';
+  var card=el('section','card'),inner=el('div','card-in');
+  card.appendChild(inner);res.appendChild(card);res.classList.add('show');
+  var nm=fName.value.trim();
+  var kick=el('div','name');kick.textContent=nm?nm+' · Tu resultado':'Tu resultado';
+  inner.appendChild(kick);
+  try{window.scrollTo({top:0,behavior:'smooth'})}catch(e){window.scrollTo(0,0)}
+  return inner;
+}
+function showScreen(key){
+  var s=SCREENS[key],inner=shell();
+  var ic=el('div','ric'+(s.c?' warn':''));ic.appendChild(svgIcon(s.c?'M11 7h2v7h-2zm0 8h2v2h-2zm1-13C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 18c-4.4 0-8-3.6-8-8s3.6-8 8-8 8 3.6 8 8-3.6 8-8 8z':CHECK,36,s.c?'#5ac8fa':'#48c9b0'));
+  inner.appendChild(ic);
+  inner.appendChild(el('h2',null,s.t));
+  inner.appendChild(richDesc(s.d));
+  var a=el('a','btn',s.b);a.href=s.u;a.appendChild(svgIcon('M8.6 4.6 7.2 6l6 6-6 6 1.4 1.4L16 12z',17,'#fff'));
+  inner.appendChild(a);
+  inner.appendChild(el('p','foot','Urólogo Mauro Carrillo · urologia.ar'));
+  focusResult();
+}
+function showFallback(){
+  var inner=shell();
+  var ic=el('div','ric');ic.appendChild(svgIcon(CHECK,36,'#48c9b0'));inner.appendChild(ic);
+  inner.appendChild(el('h2',null,'Listo, recibimos tus respuestas. Te escribo por mail.'));
+  focusResult();
+}
+function render(r){
+  var v=r.variante||'';
+  if(SCREENS[v]){showScreen(v);return}
+  if(v==='B-CONTACTO'||r.pantalla==='B-CONTACTO'){showContacto();return}
+  if(r.pantalla==='B-AUTO'){showScreen('B-AUTO');return}
+  showFallback();
+}
+
+/* ---------- B-CONTACTO: P8 + P14/P15 ---------- */
+function showContacto(){
+  var inner=shell();
+  inner.appendChild(el('h2','q','Por lo que me contás, el programa puede funcionar bien para vos. Pero antes de comprar conviene que conversemos para asegurarnos. ¿Cómo te contacto?'));
+  var d=el('p','desc','Meet es la opción que recomiendo — agenda automática y queda en tu calendario al instante.');d.style.textAlign='left';inner.appendChild(d);
+  var fs=el('fieldset'),lg=el('legend','hp','¿Cómo te contacto?');fs.appendChild(lg);
+  var opts=el('div','opts');fs.appendChild(opts);inner.appendChild(fs);
+  var sub=el('div');inner.appendChild(sub);
+  var busy=el('div','net');inner.appendChild(busy);
+  var items=[{v:'meet',t:'Meet (Mejor opción — agenda automática)',tag:'Recomendado'},{v:'wa',t:'WhatsApp (mensajes o llamada de WA)'},{v:'tel',t:'Llamada telefónica (solo Argentina)'}];
+  items.forEach(function(it){
+    var lab=el('label','opt'),inp=el('input');inp.type='radio';inp.name='p8';inp.value=it.v;
+    var mark=el('span','mark');mark.appendChild(svgIcon(CHECK,14,'#fff'));
+    var txt=el('span','txt',it.t);if(it.tag){txt.appendChild(el('span','tag',it.tag))}
+    lab.appendChild(inp);lab.appendChild(mark);lab.appendChild(txt);opts.appendChild(lab);
+    inp.addEventListener('change',function(){
+      if(contactoBusy)return;
+      [].forEach.call(opts.querySelectorAll('.opt'),function(o){o.classList.toggle('is-sel',o.querySelector('input').checked)});
+      sub.textContent='';busy.className='net';
+      if(it.v==='meet')postContacto('meet','',busy,function(){showScreen('B-MEET')},lock);
+      else phoneCard(it.v,sub,busy,lock);
+    });
+  });
+  /* bloquea radios de P8, campo y botón Confirmar mientras hay un POST de contacto en vuelo */
+  function lock(on){
+    contactoBusy=on;
+    [].forEach.call(inner.querySelectorAll('input,button'),function(x){if(!busy.contains(x))x.disabled=on});
+    [].forEach.call(opts.querySelectorAll('.opt'),function(o){o.classList.toggle('is-lock',on&&!o.querySelector('input').checked)});
+  }
+  focusResult();
+}
+function postContacto(tipo,tel,busy,onOk,lock){
+  if(contactoBusy)return;
+  var d={step:'contacto',email:fEmail.value.trim(),contacto:tipo,_hp:fHp.value};
+  if(tel)d.telefono=tel;
+  lock(true);
+  busy.textContent='';busy.appendChild(el('div',null,'Guardando…'));busy.className='net info show';
+  post(d).then(function(r){
+    if(r&&r.ok===true){onOk()}else{contactoErr(busy,tipo,tel,onOk,lock,errMsg(r))}
+  }).catch(function(){contactoErr(busy,tipo,tel,onOk,lock,null)});
+}
+function contactoErr(busy,tipo,tel,onOk,lock,msg){
+  lock(false);
+  busy.textContent='';busy.appendChild(el('div',null,msg||'No pudimos guardar tu elección. Revisá tu conexión y probá de nuevo.'));
+  var b=el('button','btn sec','Reintentar');b.type='button';b.addEventListener('click',function(){postContacto(tipo,tel,busy,onOk,lock)});
+  busy.appendChild(b);busy.className='net show';
+}
+function phoneCard(tipo,sub,busy,lock){
+  var wa=tipo==='wa';
+  var box=el('div','sub-card');
+  box.appendChild(el('h3',null,wa?'Dejame tu WhatsApp — número completo con código de país':'Dejame tu número de teléfono (Argentina) — código de área + número, sin 15'));
+  box.appendChild(el('p','desc',wa
+    ?'Importante: incluí código de país + área + número, así te escribo sin errores.\n\nEjemplos (formato, no son números reales):\nArgentina: +54 9 XXX XXXXXXX\nMéxico: +52 1 XX XXXXXXXX\nEspaña: +34 XXXXXXXXX\nOtros países: agregá el código que corresponda con un + al inicio.'
+    :'Llamada solo dentro de Argentina (+54). Te contacto desde número oculto.\n\nFormato: código de área + número, sin el 15.\nEjemplos (no son números reales):\nMendoza: 261 XXXXXXX\nBuenos Aires: 11 XXXXXXXX\nCórdoba: 351 XXXXXXX'));
+  var f=el('div','f'),lab=el('label',null,wa?'Tu WhatsApp':'Tu teléfono');lab.htmlFor='tel';
+  var inp=el('input');inp.type='tel';inp.id='tel';inp.name='telefono';inp.autocomplete='tel';inp.maxLength=25;inp.placeholder=wa?'+54 9 261 1234567':'261 1234567';
+  var err=el('div','ferr',wa?'Incluí el código de país con el + al inicio y el número completo.':'Escribí código de área + número, sin el 15.');
+  f.appendChild(lab);f.appendChild(inp);f.appendChild(err);box.appendChild(f);
+  var b=el('button','btn','Confirmar');b.type='button';b.style.marginTop='14px';box.appendChild(b);
+  sub.appendChild(box);
+  setTimeout(function(){scrollToEl(box);try{inp.focus({preventScroll:true})}catch(e){}},120);
+  function check(){
+    var v=inp.value.trim(),digits=v.replace(/\D/g,'');
+    var ok=wa?(v.charAt(0)==='+'&&digits.length>=8&&digits.length<=15):(digits.length>=8&&digits.length<=12);
+    f.classList.toggle('is-bad',!ok);f.classList.toggle('is-ok',ok);return ok?v:null;
+  }
+  inp.addEventListener('input',function(){if(f.classList.contains('is-bad'))check()});
+  inp.addEventListener('keydown',function(ev){if(ev.key==='Enter'){ev.preventDefault();b.click()}});
+  b.addEventListener('click',function(){
+    if(contactoBusy)return;
+    var v=check();if(!v){inp.focus();return}
+    postContacto(tipo,v,busy,function(){showScreen('B-CONFIRMADO')},lock);
+  });
+}
+
+/* ---------- modo prueba: autocompleta para ver cada pantalla con un solo tap ---------- */
+if(MOCK){
+  var note=$('mockNote');note.hidden=false;note.classList.add('show');
+  fName.value='Prueba';fEmail.value='prueba@example.com';fEmail2.value='prueba@example.com';
+  fPais.value='AR';fPais.classList.remove('is-empty');
+  QS.forEach(function(q){
+    var r=form.querySelector('input[name="'+q+'"][value="a"]');if(!r)return;
+    r.checked=true;var card=r.closest('.card');
+    [].forEach.call(card.querySelectorAll('.opt'),function(o){o.classList.toggle('is-sel',o.querySelector('input').checked)});
+    card.classList.add('is-done');
+  });
+  validateDatos(false);
+}
+update();
+})();
+</script>
+</body>
+</html>

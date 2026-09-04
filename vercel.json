@@ -30,6 +30,9 @@
     "src/app/api/admin/enroll-stock/route.ts": {
       "maxDuration": 60
     },
+    "src/app/api/admin/enroll-rescate/route.ts": {
+      "maxDuration": 60
+    },
     "src/app/api/admin/backfill-tier-c/route.ts": {
       "maxDuration": 60
     },

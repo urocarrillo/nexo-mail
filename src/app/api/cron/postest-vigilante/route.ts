@@ -929,7 +929,7 @@ async function heartbeat(filas: Fila[], stats: Stats, now: Date): Promise<void> 
   const hoyDDMM = fechaArtDDMMYYYY(now);
   const enviados = { A: 0, B: 0, C: 0 };
   for (const f of filas) {
-    const m = f.mailEnviado.match(/^auto\??\s+(\d{2}\/\d{2}\/\d{4})/);
+    const m = f.mailEnviado.match(/^(?:auto|form)\??\s+(\d{2}\/\d{2}\/\d{4})/);
     if (!m) continue;
     if (m[1] !== hoyDDMM && m[1] !== ayer) continue;
     const t = tierParaEnvio(f.pantalla);

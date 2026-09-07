@@ -272,3 +272,21 @@ describe('tierParaEnvio', () => {
     expect(tierParaEnvio(undefined)).toBeNull();
   });
 });
+
+
+describe('forzadores tempranos con preguntas salteadas por Typeform', () => {
+  it('P2c con solo edad y erección → C-P2c (Typeform saltó el resto)', () => {
+    const r = calcularTier({ edad: '18 - 49 años', ereccion: 'No, casi nunca', salud: '', pareja: '', consumo: '', compromiso: '', inversion: '' });
+    expect(r).toMatchObject({ forzador: 'P2c', pantalla: 'C', variante: 'C-P2c' });
+  });
+  it('P3c con edad, erección y salud → C-P3c', () => {
+    const r = calcularTier({ edad: '50 años o más', ereccion: 'A veces sí, a veces no', salud: 'Tengo varias de esas condiciones y el problema apareció cerca del diagnóstico', pareja: '', consumo: '', compromiso: '', inversion: '' });
+    expect(r).toMatchObject({ forzador: 'P3c', pantalla: 'C', variante: 'C-P3c' });
+  });
+  it('P2c sin edad → null', () => {
+    expect(calcularTier({ edad: '', ereccion: 'No, casi nunca', salud: '', pareja: '', consumo: '', compromiso: '', inversion: '' })).toBeNull();
+  });
+  it('sin forzador y con pareja vacía → null (sigue incompleta)', () => {
+    expect(calcularTier({ edad: '18 - 49 años', ereccion: 'Sí, casi siempre', salud: 'No tengo enfermedades', pareja: '', consumo: 'Ocasional', compromiso: 'Sí, me comprometo', inversion: '' })).toBeNull();
+  });
+});

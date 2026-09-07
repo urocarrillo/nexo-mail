@@ -60,16 +60,18 @@ export function respuestaDesconocida(r: RespuestasTier): keyof RespuestasTier | 
   return null;
 }
 
-/** true si las 6 respuestas puntuables están presentes (la inversión puede faltar). */
+/**
+ * true si están las respuestas necesarias. Typeform SALTA las preguntas
+ * siguientes cuando una respuesta obliga a C (P2c en erección, P3c en salud),
+ * así que esas filas llegan "incompletas" a propósito: se aceptan igual.
+ * La inversión puede faltar siempre.
+ */
 export function respuestasCompletas(r: RespuestasTier): boolean {
-  return Boolean(
-    clean(r.edad) &&
-      clean(r.ereccion) &&
-      clean(r.salud) &&
-      clean(r.pareja) &&
-      clean(r.consumo) &&
-      clean(r.compromiso)
-  );
+  if (!clean(r.edad) || !clean(r.ereccion)) return false;
+  if (empieza(clean(r.ereccion), 'No')) return true; // P2c → pantalla C, sin más preguntas
+  if (!clean(r.salud)) return false;
+  if (empieza(clean(r.salud), 'Tengo varias')) return true; // P3c → pantalla C
+  return Boolean(clean(r.pareja) && clean(r.consumo) && clean(r.compromiso));
 }
 
 /**

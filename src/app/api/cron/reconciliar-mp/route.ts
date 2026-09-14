@@ -225,6 +225,25 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }
     }
 
+    // Embudo post-consulta Calendly: la cola de reservas se procesa el día del
+    // turno (cupón + mail programado en Brevo). Mismo esquema: esperamos como
+    // máximo 10 s; el cron tiene lock propio.
+    let postconsulta = 'skip';
+    if (!dry && cronSecret) {
+      try {
+        const base = process.env.PUBLIC_BASE_URL || 'https://nexo-mail.vercel.app';
+        postconsulta = await Promise.race([
+          fetch(`${base}/api/cron/postconsulta`, {
+            headers: { authorization: `Bearer ${cronSecret}` },
+            signal: AbortSignal.timeout(55000),
+          }).then((r) => `http ${r.status}`),
+          new Promise<string>((resolve) => setTimeout(() => resolve('en curso (no esperado)'), 10000)),
+        ]);
+      } catch (e) {
+        postconsulta = `error ${e instanceof Error ? e.message : 'unknown'}`;
+      }
+    }
+
     // Cola drip (secuencias, rescate R2-R4): además del cron diario de Vercel
     // (13:00 UTC), entre las 13:00 y las 16:00 UTC (10 a 13 hora Argentina) cada
     // corrida de Hostinger dispara send-emails para drenar picos en varias
@@ -251,6 +270,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       pendientes_mp_revisados: candidatos.length,
       ...resultado,
       vigilante,
+      postconsulta,
       drip,
     });
   } catch (err) {

@@ -103,6 +103,12 @@
     },
     "src/app/api/form/test-programa/route.ts": {
       "maxDuration": 60
+    },
+    "src/app/api/cron/postconsulta/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/webhook/calendly/route.ts": {
+      "maxDuration": 30
     }
   },
   "crons": [
@@ -173,6 +179,10 @@
     {
       "path": "/api/cron/postest-vigilante",
       "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/cron/postconsulta",
+      "schedule": "30 3 * * *"
     }
   ]
 }

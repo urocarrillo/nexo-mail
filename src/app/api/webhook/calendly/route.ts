@@ -1,7 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
-import crypto from 'crypto';
-import * as Brevo from '@getbrevo/brevo';
-import { createPatientCoupon } from '@/lib/woocommerce-coupons';
+import { deleteUnusedPatientCoupons } from '@/lib/woocommerce-coupons';
+import {
+  cancelarMailProgramado,
+  debeProcesarse,
+  desencolarReserva,
+  encolarReserva,
+  procesarReserva,
+  type ReservaPendiente,
+} from '@/lib/postconsulta';
+import { enviarAlerta } from '@/lib/alertas';
+
+/**
+ * Webhook de Calendly (invitee.created / invitee.canceled) del embudo
+ * post-consulta. Solo turnos "Atención Prioritaria".
+ *
+ * created  → encola la reserva en KV; el cron /api/cron/postconsulta crea el
+ *            cupón y programa el mail EL DÍA DEL TURNO (Brevo no permite
+ *            programar a más de 3 días). Si el turno es hoy, se procesa acá
+ *            mismo para no depender del próximo tick del cron.
+ * canceled → saca la reserva de la cola, borra el cupón sin usar de ese turno y
+ *            revoca el mail programado en Brevo (por el messageId del cupón).
+ *
+ * Lógica de cupón/mail: src/lib/postconsulta.ts.
+ */
+
+export const maxDuration = 30;
 
 // ─── Calendly webhook types ────────────────────────────────────────
 
@@ -25,61 +48,7 @@ interface CalendlyWebhookPayload {
   };
 }
 
-// ─── Config ─────────────────────────────────────────────────────────
-
 const ALLOWED_EVENT_NAMES = ['Atención Prioritaria'];
-const POST_CONSULTATION_DELAY_MS = 60 * 60 * 1000; // 1 hour after event ends
-const BREVO_TEMPLATE_ID = parseInt(process.env.CALENDLY_EMAIL_TEMPLATE_ID || '0');
-
-// ─── Brevo transactional send ───────────────────────────────────────
-
-const transacApi = new Brevo.TransactionalEmailsApi();
-transacApi.setApiKey(
-  Brevo.TransactionalEmailsApiApiKeys.apiKey,
-  process.env.BREVO_API_KEY || ''
-);
-
-async function sendPostConsultationEmail(params: {
-  email: string;
-  name: string;
-  couponCode: string;
-  templateId: number;
-  scheduledAt?: string; // ISO datetime — Brevo sends at this time
-}): Promise<{ success: boolean; messageId?: string; error?: string }> {
-  const { email, name, couponCode, templateId, scheduledAt } = params;
-
-  try {
-    const sendEmail = new Brevo.SendSmtpEmail();
-    sendEmail.templateId = templateId;
-    sendEmail.to = [{ email, name }];
-    sendEmail.params = {
-      NOMBRE: name.split(' ')[0],
-      COUPON_CODE: couponCode,
-    };
-    if (scheduledAt) {
-      sendEmail.scheduledAt = new Date(scheduledAt);
-    }
-
-    const result = await transacApi.sendTransacEmail(sendEmail);
-    const action = scheduledAt ? `scheduled for ${scheduledAt}` : 'sent immediately';
-    console.log(`Post-consultation email ${action} to ${email} (coupon: ${couponCode})`);
-    return { success: true, messageId: result.body?.messageId };
-  } catch (error: unknown) {
-    const apiError = error as { response?: { body?: { message?: string } }; message?: string };
-    console.error('Brevo send error:', apiError.response?.body || apiError.message);
-    return {
-      success: false,
-      error: apiError.response?.body?.message || apiError.message || 'Unknown error',
-    };
-  }
-}
-
-// ─── Validation ─────────────────────────────────────────────────────
-
-function validateRequest(): boolean {
-  // No auth needed — worst case someone generates a 30% single-use coupon
-  return true;
-}
 
 function isAllowedEvent(payload: CalendlyWebhookPayload): boolean {
   const eventName = payload.payload.event_type?.name
@@ -100,12 +69,10 @@ export async function GET(): Promise<NextResponse> {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  let rawBody: string;
   let body: CalendlyWebhookPayload;
 
   try {
-    rawBody = await request.text();
-    body = JSON.parse(rawBody);
+    body = JSON.parse(await request.text());
   } catch {
     return NextResponse.json(
       { success: false, error: 'Invalid JSON' },
@@ -113,9 +80,49 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Basic validation — open endpoint, low risk (worst case: a 30% coupon)
-  if (!validateRequest()) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  // Sin firma: endpoint abierto, riesgo bajo (a lo sumo un cupón 30 % de un solo uso)
+
+  // Cancellation: drop the queued booking, revoke the scheduled email and the unused coupon
+  if (body.event === 'invitee.canceled') {
+    if (!isAllowedEvent(body)) {
+      return NextResponse.json({ success: true, message: 'Ignored cancellation (event type)', skipped: true });
+    }
+    const { email } = body.payload;
+    const eventUri = body.payload.event;
+    if (!email) {
+      return NextResponse.json({ success: false, error: 'Missing email' }, { status: 400 });
+    }
+
+    let dequeued = true;
+    if (eventUri) {
+      try {
+        await desencolarReserva(eventUri);
+      } catch (err) {
+        dequeued = false;
+        console.error('Calendly cancel: no se pudo sacar de la cola', eventUri, err);
+      }
+    }
+
+    const couponCleanup = await deleteUnusedPatientCoupons({
+      patientEmail: email,
+      eventUri,
+    });
+
+    let emailCanceled = false;
+    for (const messageId of couponCleanup.messageIds) {
+      if (await cancelarMailProgramado(messageId)) emailCanceled = true;
+    }
+
+    console.log(
+      `Cancellation processed: ${email} | dequeued: ${dequeued} | email revoked: ${emailCanceled} | coupons deleted: ${couponCleanup.deleted.join(', ') || 'none'}`
+    );
+    return NextResponse.json({
+      success: true,
+      message: 'Cancellation processed',
+      dequeued,
+      emailCanceled,
+      couponsDeleted: couponCleanup.deleted,
+    });
   }
 
   // Only process invitee.created events
@@ -141,67 +148,77 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const { email, name } = body.payload;
+  const eventUri = body.payload.event || body.payload.scheduled_event?.uri;
   const eventEndTime = body.payload.scheduled_event?.end_time;
 
-  if (!email || !eventEndTime) {
+  if (!email || !eventEndTime || !eventUri) {
     return NextResponse.json(
-      { success: false, error: 'Missing email or event end time' },
+      { success: false, error: 'Missing email, event URI or event end time' },
       { status: 400 }
     );
   }
+  const endTime = new Date(eventEndTime);
+  if (Number.isNaN(endTime.getTime())) {
+    return NextResponse.json({ success: false, error: 'Invalid event end time' }, { status: 400 });
+  }
+
+  const now = new Date();
+  const reserva: ReservaPendiente = {
+    eventUri,
+    email,
+    name: name || 'Paciente',
+    endTime: endTime.toISOString(),
+    createdAt: now.toISOString(),
+    attempts: 0,
+  };
 
   try {
-    // 1. Create WooCommerce coupon (30%, 24hr, single use)
-    const couponResult = await createPatientCoupon({
-      patientName: name || 'Paciente',
-      patientEmail: email,
-    });
-
-    if (!couponResult.success || !couponResult.code) {
-      console.error('Failed to create coupon:', couponResult.error);
+    await encolarReserva(reserva);
+  } catch (err) {
+    // Sin KV no hay cola: si el turno cae dentro de lo que Brevo acepta,
+    // procesamos ahora igual (comportamiento anterior); si no, avisamos.
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Calendly webhook: no se pudo encolar la reserva:', msg);
+    const horas = (endTime.getTime() - now.getTime()) / 3_600_000;
+    if (horas > 60) {
+      await enviarAlerta(
+        `POST-CONSULTA: reserva sin encolar (KV caído) — ${email}`,
+        `No se pudo guardar la reserva en KV y el turno está a ${horas.toFixed(0)} h (Brevo no acepta programar tan lejos).\n\nPaciente: ${name || 'Paciente'} <${email}>\nFin del turno: ${endTime.toISOString()}\nTurno: ${eventUri}\nError: ${msg}\n\nCuando llegue el día, mandar el mail a mano o volver a disparar el webhook.\n\n— Nexo-mail`
+      );
       return NextResponse.json(
-        { success: false, error: `Coupon creation failed: ${couponResult.error}` },
+        { success: false, error: `Queue failed: ${msg}`, alerted: true },
         { status: 500 }
       );
     }
-
-    // 2. Schedule email via Brevo's scheduledAt — 1 hour after consultation ends
-    //    Brevo handles the delay server-side, no cron needed.
-    const endTime = new Date(eventEndTime);
-    const sendAt = new Date(endTime.getTime() + POST_CONSULTATION_DELAY_MS);
-
-    const emailResult = await sendPostConsultationEmail({
-      email,
-      name: name || 'Paciente',
-      couponCode: couponResult.code,
-      templateId: BREVO_TEMPLATE_ID,
-      scheduledAt: sendAt.toISOString(),
-    });
-
-    if (!emailResult.success) {
-      // Coupon was created but email failed — log but don't fail the webhook
-      console.error(`Email scheduling failed for ${email}: ${emailResult.error}. Coupon ${couponResult.code} was created.`);
-    }
-
-    console.log(
-      `Post-consultation flow complete: ${email} | coupon: ${couponResult.code} | email scheduled: ${sendAt.toISOString()}`
-    );
-
+    const resultado = await procesarReserva(reserva, { now });
     return NextResponse.json({
-      success: true,
-      message: 'Coupon created and email scheduled via Brevo',
-      couponCode: couponResult.code,
-      sendAt: sendAt.toISOString(),
-      emailScheduled: emailResult.success,
+      success: resultado.estado !== 'error',
+      message: 'Queue failed; processed immediately',
+      ...resultado,
     });
-  } catch (error) {
-    console.error('Calendly webhook error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
   }
+
+  // Turno de hoy (o ya pasado): no esperamos al cron
+  if (debeProcesarse(endTime, now)) {
+    const resultado = await procesarReserva(reserva, { now });
+    console.log(
+      `Post-consultation (same day): ${email} | ${resultado.estado} | coupon: ${resultado.couponCode || '-'} | sendAt: ${resultado.sendAt || '-'}`
+    );
+    return NextResponse.json({
+      success: resultado.estado !== 'error',
+      message: resultado.estado === 'error' ? 'Queued; immediate processing failed (cron will retry)' : 'Coupon created and email scheduled via Brevo',
+      queued: true,
+      ...resultado,
+    });
+  }
+
+  console.log(
+    `Post-consultation booking queued: ${email} | send at: ${reserva.endTime} | event: ${eventUri}`
+  );
+  return NextResponse.json({
+    success: true,
+    message: 'Booking queued; coupon and email will be created on the day of the appointment',
+    queued: true,
+    sendAt: reserva.endTime,
+  });
 }

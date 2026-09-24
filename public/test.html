@@ -11,7 +11,7 @@
                     -> {ok:true, pantalla:'A'|'B-CONTACTO'|'B-AUTO'|'C',
                         variante:'A-Limpia'|'A-Cuotas'|'A-Nurture'|'B-CONTACTO'|'B-AUTO'|'C-P2c'|'C-P3c'|'C-P6c'|'C-ScoreBajo'}
                        o {ok:false,error}
-    step:'contacto' {email,contacto:'meet'|'wa'|'tel',telefono?,_hp} -> {ok:true}   (solo B-CONTACTO)
+    (B-CONTACTO y B-AUTO muestran la misma pantalla B: el contacto se resuelve por mail, sin Meet ni WhatsApp — 24/09/2026)
   'src' = ?src= de la URL (a-z0-9-_ , máx 40) o 'web'. '_hp' = honeypot, debe ir vacío.
   'error' (cuando ok:false) debe ser texto apto para mostrar al usuario (se recorta a 200 chars).
   Toda request tiene timeout de 15 s en el cliente; al vencer se muestra "Reintentar".
@@ -368,7 +368,7 @@ var $=function(id){return document.getElementById(id)};
 var form=$('form'),btn=$('btn'),btnTxt=$('btnTxt'),btnArrow=$('btnArrow'),net=$('net'),res=$('res');
 var fName=$('name'),fEmail=$('email'),fEmail2=$('email2'),fPais=$('pais'),fHp=$('hp'),fVerb=$('verbatim');
 var cards=[].slice.call(form.querySelectorAll('.card'));
-var touched={},partialEmails=[],sending=false,contactoBusy=false;
+var touched={},partialEmails=[],sending=false;
 var TIMEOUT=15000;
 
 /* ---------- utilidades ---------- */
@@ -542,9 +542,7 @@ var SCREENS={
   'A-Limpia':{t:'Listo — este programa es para vos',d:'Por lo que me contás, sos buen candidato y estás en el momento justo. Acá tenés todos los detalles del programa y cómo inscribirte.',b:'Quiero inscribirme',u:LANDING+UTM+'form-a-prio'},
   'A-Cuotas':{t:'Este programa es para vos',d:'Por lo que me contás, sos buen candidato. En Argentina podés pagarlo en 3 cuotas sin interés con Mercado Pago. En otros países según disponibilidad de tu banco. Acá tenés los detalles.',b:'Quiero inscribirme',u:LANDING+UTM+'form-a-aju'},
   'A-Nurture':{t:'Este programa es para vos cuando estés listo',d:'Por lo que me contás sos buen candidato, aunque hoy tenés otras prioridades. Cuando estés listo vamos a estar acá. Si querés, mirá los detalles del programa — y si preferís, te avisamos cuando abramos la próxima cohorte.',b:'Ver detalles del programa',u:LANDING+UTM+'form-a-otras'},
-  'B-AUTO':{t:'Este programa puede ayudarte',d:'Mirá la información del programa con calma. Cuando te decidas, accedés desde esta página (botón de abajo). Si tenés dudas puntuales antes, escribime a '+MAIL,b:'Ver el programa',u:LANDING+UTM+'form-bauto'},
-  'B-MEET':{t:'Perfecto — agendamos por Meet',d:'Tocá el botón para elegir tu horario. Al reservar, te llega el link del Meet por mail.',b:'Agendar Meet',u:CALENDLY+'/programa'},
-  'B-CONFIRMADO':{t:'Listo — te contacto pronto',d:'Recibí toda tu info. Te contacto en los próximos días en el horario que indicaste. Mientras tanto, podés ver los detalles del programa si querés ir mirando.',b:'Ver programa mientras tanto',u:LANDING+UTM+'form-bcontacto'},
+  'B-AUTO':{t:'Este programa puede ayudarte',d:'Por lo que me contás, en tu caso hay un componente de ansiedad que se entrena, y ahí el programa puede ayudarte. Te acabo de mandar un mail con el detalle. Mirá el programa y, si te interesa, respondé ese mail contándome cómo es lo tuyo: te digo si es para vos.',b:'Ver el programa',u:LANDING+UTM+'form-b'},
   'C-P2c':{t:'Te sugiero una consulta individual primero',d:'No tenés erecciones espontáneas ni cuando estás solo, lo que sugiere componente orgánico. Aunque el programa puede ayudarte, probablemente no sea suficiente para vos solo en este momento. Te sugiero primero una consulta individual conmigo para evaluar a fondo. Si querés hacer el programa igual, podés — pero hacelo entendiendo que probablemente necesites algo más (consulta, evaluación específica o trabajo paralelo). Si igual querés conocer el programa: '+LANDING,b:'Agendar consulta individual',u:CALENDLY,c:true},
   'C-P3c':{t:'Te sugiero una consulta individual primero',d:'El problema de erección apareció cerca del momento de tu diagnóstico médico. Aunque el programa puede ayudarte, probablemente no sea suficiente para vos solo en este momento. Te sugiero primero una consulta individual conmigo para evaluar a fondo el componente orgánico relacionado. Si querés hacer el programa igual, podés — pero hacelo entendiendo que probablemente necesites algo más (consulta, evaluación específica o trabajo paralelo). Si igual querés conocer el programa: '+LANDING,b:'Agendar consulta individual',u:CALENDLY,c:true},
   'C-P6c':{t:'Una consulta individual te sirve más ahora',d:'Sin disponibilidad de 15-30 minutos diarios, el programa no rinde. Aunque el programa puede ayudarte, probablemente no sea suficiente para vos solo en este momento. Te sugiero primero una consulta individual conmigo para abordar tu caso puntual sin la exigencia del programa. Si querés hacer el programa igual, podés — pero hacelo entendiendo que probablemente necesites algo más (consulta, evaluación específica o trabajo paralelo). Si igual querés conocer el programa: '+LANDING,b:'Agendar consulta individual',u:CALENDLY,c:true},
@@ -603,84 +601,8 @@ function showFallback(){
 function render(r){
   var v=r.variante||'';
   if(SCREENS[v]){showScreen(v);return}
-  if(v==='B-CONTACTO'||r.pantalla==='B-CONTACTO'){showContacto();return}
-  if(r.pantalla==='B-AUTO'){showScreen('B-AUTO');return}
+  if(v==='B-CONTACTO'||r.pantalla==='B-CONTACTO'||r.pantalla==='B-AUTO'){showScreen('B-AUTO');return}
   showFallback();
-}
-
-/* ---------- B-CONTACTO: P8 + P14/P15 ---------- */
-function showContacto(){
-  var inner=shell();
-  inner.appendChild(el('h2','q','Por lo que me contás, el programa puede funcionar bien para vos. Pero antes de comprar conviene que conversemos para asegurarnos. ¿Cómo te contacto?'));
-  var d=el('p','desc','Meet es la opción que recomiendo — agenda automática y queda en tu calendario al instante.');d.style.textAlign='left';inner.appendChild(d);
-  var fs=el('fieldset'),lg=el('legend','hp','¿Cómo te contacto?');fs.appendChild(lg);
-  var opts=el('div','opts');fs.appendChild(opts);inner.appendChild(fs);
-  var sub=el('div');inner.appendChild(sub);
-  var busy=el('div','net');inner.appendChild(busy);
-  var items=[{v:'meet',t:'Meet (Mejor opción — agenda automática)',tag:'Recomendado'},{v:'wa',t:'WhatsApp (mensajes o llamada de WA)'},{v:'tel',t:'Llamada telefónica (solo Argentina)'}];
-  items.forEach(function(it){
-    var lab=el('label','opt'),inp=el('input');inp.type='radio';inp.name='p8';inp.value=it.v;
-    var mark=el('span','mark');mark.appendChild(svgIcon(CHECK,14,'#fff'));
-    var txt=el('span','txt',it.t);if(it.tag){txt.appendChild(el('span','tag',it.tag))}
-    lab.appendChild(inp);lab.appendChild(mark);lab.appendChild(txt);opts.appendChild(lab);
-    inp.addEventListener('change',function(){
-      if(contactoBusy)return;
-      [].forEach.call(opts.querySelectorAll('.opt'),function(o){o.classList.toggle('is-sel',o.querySelector('input').checked)});
-      sub.textContent='';busy.className='net';
-      if(it.v==='meet')postContacto('meet','',busy,function(){showScreen('B-MEET')},lock);
-      else phoneCard(it.v,sub,busy,lock);
-    });
-  });
-  /* bloquea radios de P8, campo y botón Confirmar mientras hay un POST de contacto en vuelo */
-  function lock(on){
-    contactoBusy=on;
-    [].forEach.call(inner.querySelectorAll('input,button'),function(x){if(!busy.contains(x))x.disabled=on});
-    [].forEach.call(opts.querySelectorAll('.opt'),function(o){o.classList.toggle('is-lock',on&&!o.querySelector('input').checked)});
-  }
-  focusResult();
-}
-function postContacto(tipo,tel,busy,onOk,lock){
-  if(contactoBusy)return;
-  var d={step:'contacto',email:fEmail.value.trim(),contacto:tipo,_hp:fHp.value};
-  if(tel)d.telefono=tel;
-  lock(true);
-  busy.textContent='';busy.appendChild(el('div',null,'Guardando…'));busy.className='net info show';
-  post(d).then(function(r){
-    if(r&&r.ok===true){onOk()}else{contactoErr(busy,tipo,tel,onOk,lock,errMsg(r))}
-  }).catch(function(){contactoErr(busy,tipo,tel,onOk,lock,null)});
-}
-function contactoErr(busy,tipo,tel,onOk,lock,msg){
-  lock(false);
-  busy.textContent='';busy.appendChild(el('div',null,msg||'No pudimos guardar tu elección. Revisá tu conexión y probá de nuevo.'));
-  var b=el('button','btn sec','Reintentar');b.type='button';b.addEventListener('click',function(){postContacto(tipo,tel,busy,onOk,lock)});
-  busy.appendChild(b);busy.className='net show';
-}
-function phoneCard(tipo,sub,busy,lock){
-  var wa=tipo==='wa';
-  var box=el('div','sub-card');
-  box.appendChild(el('h3',null,wa?'Dejame tu WhatsApp — número completo con código de país':'Dejame tu número de teléfono (Argentina) — código de área + número, sin 15'));
-  box.appendChild(el('p','desc',wa
-    ?'Importante: incluí código de país + área + número, así te escribo sin errores.\n\nEjemplos (formato, no son números reales):\nArgentina: +54 9 XXX XXXXXXX\nMéxico: +52 1 XX XXXXXXXX\nEspaña: +34 XXXXXXXXX\nOtros países: agregá el código que corresponda con un + al inicio.'
-    :'Llamada solo dentro de Argentina (+54). Te contacto desde número oculto.\n\nFormato: código de área + número, sin el 15.\nEjemplos (no son números reales):\nMendoza: 261 XXXXXXX\nBuenos Aires: 11 XXXXXXXX\nCórdoba: 351 XXXXXXX'));
-  var f=el('div','f'),lab=el('label',null,wa?'Tu WhatsApp':'Tu teléfono');lab.htmlFor='tel';
-  var inp=el('input');inp.type='tel';inp.id='tel';inp.name='telefono';inp.autocomplete='tel';inp.maxLength=25;inp.placeholder=wa?'+54 9 261 1234567':'261 1234567';
-  var err=el('div','ferr',wa?'Incluí el código de país con el + al inicio y el número completo.':'Escribí código de área + número, sin el 15.');
-  f.appendChild(lab);f.appendChild(inp);f.appendChild(err);box.appendChild(f);
-  var b=el('button','btn','Confirmar');b.type='button';b.style.marginTop='14px';box.appendChild(b);
-  sub.appendChild(box);
-  setTimeout(function(){scrollToEl(box);try{inp.focus({preventScroll:true})}catch(e){}},120);
-  function check(){
-    var v=inp.value.trim(),digits=v.replace(/\D/g,'');
-    var ok=wa?(v.charAt(0)==='+'&&digits.length>=8&&digits.length<=15):(digits.length>=8&&digits.length<=12);
-    f.classList.toggle('is-bad',!ok);f.classList.toggle('is-ok',ok);return ok?v:null;
-  }
-  inp.addEventListener('input',function(){if(f.classList.contains('is-bad'))check()});
-  inp.addEventListener('keydown',function(ev){if(ev.key==='Enter'){ev.preventDefault();b.click()}});
-  b.addEventListener('click',function(){
-    if(contactoBusy)return;
-    var v=check();if(!v){inp.focus();return}
-    postContacto(tipo,v,busy,function(){showScreen('B-CONFIRMADO')},lock);
-  });
 }
 
 /* ---------- modo prueba: autocompleta para ver cada pantalla con un solo tap ---------- */

@@ -1,17 +1,22 @@
 /**
- * Secuencia post-Typeform — 9 mails (M0, M1A/M1B, M2..M8).
+ * Secuencia post-test del programa DE (v6, 24/09/2026): mails cortos y humanos.
  *
- * Spec de copy y reglas:
- *   06-Procesos/reportes/auditoria-jul2026/sprint1-mensajes/secuencia-post-typeform.md
+ *   Tier A: día 0 "tu resultado del test" → día 1 "¿la pudiste ver?" → día 4
+ *           "¿hace cuánto que estás con esto?"
+ *   Tier B: día 0 "sobre tu resultado" (frase según el factor que lo hace B)
+ *           → día 3 "¿la pudiste ver?" (versión B)
+ *
+ * Copy aprobado por Mauro (06-Procesos/embudos/embudo-programa-v5-tier-a.md § 10.9).
+ * Sin cuotas, sin Calendly, sin edad. El mail 0 pide una respuesta ("recibido")
+ * para salir de spam; quien compra sale de la secuencia (webhook Woo + re-chequeo
+ * antes de cada envío en email-drip.ts).
  *
  * Este módulo es PURO (sin IO): builders de los mails, cálculo de fechas anclado
- * al calendario de Argentina (America/Argentina/Buenos_Aires, UTC-3 sin DST),
- * la lista de exclusión 1-a-1 y los predicados de elegibilidad. El motor drip
- * (email-drip.ts) lo consume para encolar y enviar; los tests cubren las partes
- * puras (fechas, exclusiones, skip por Estado).
+ * al calendario de Argentina (UTC-3 sin DST), la lista de exclusión 1-a-1 y los
+ * predicados de elegibilidad. El motor drip (email-drip.ts) lo consume.
  *
  * Mails "caseros" de mauro@ (plain text, firma "Mauro", sin branding HTML).
- * Los links ya vienen con ?mseq=sq0..sq8 en el copy — se respetan tal cual.
+ * Los links llevan ?mseq=… para atribución en WooCommerce.
  */
 
 export const SECUENCIA_TAG = 'secuencia-post-typeform';
@@ -100,159 +105,98 @@ export function estadoPausaSecuencia(estado: string | undefined | null): boolean
   return ESTADO_PAUSA_KEYWORDS.some((k) => e.includes(k));
 }
 
-// ─── Builders de los mails ──────────────────────────────────────────
+// ─── Builders de los mails (secuencia v6) ───────────────────────────
 
-export type MailVariant = 'A' | 'B';
+export type MailVariant = 'A' | 'B'; // legado (M1A/M1B): lo conservan las entries viejas de la cola
+export type SeqTrack = 'A' | 'B';
+export type FactorMailB = 'fisico' | 'vinculo';
+
 export interface SecuenciaMail {
   subject: string;
   text: string;
 }
 
+/** Días desde el test de cada paso encolado, por tier (el día 0 es inmediato). */
+export const SECUENCIA_DIAS: Record<SeqTrack, ReadonlyArray<number>> = { A: [1, 4], B: [3] };
+
 function greeting(name: string): string {
   return name ? `Hola ${name},` : 'Hola,';
 }
 
-function mail0(name: string): SecuenciaMail {
+/**
+ * Tier A, día 0: "tu resultado del test" (lo manda postest.ts al terminar el test).
+ * `soloOk` = respondió que en solitario la erección funciona ("Sí"): habilita
+ * la frase "el cuerpo funciona"; con "A veces" se omite.
+ */
+export function buildMailA0(name: string, opts: { soloOk?: boolean } = {}): SecuenciaMail {
+  const n = (name || '').trim();
+  const perfil = opts.soloOk
+    ? 'el cuerpo funciona, y la cabeza se acelera y desconecta cuando hay otra persona'
+    : 'la cabeza se acelera y desconecta cuando hay otra persona';
   return {
-    subject: 'Buenas noticias',
+    subject: 'tu resultado del test',
     text:
-      `${greeting(name)}\n\n` +
-      `Vi tus respuestas del test. Hay un dato ahí que vale más que todo el resto: me contaste que en solitario tu erección funciona bien. Guardá ese dato — vamos a volver a él.\n\n` +
-      `Te dejo el programa para que lo veas con calma:\n\n` +
-      `${LANDING}/?mseq=sq0\n\n` +
-      `Si te queda alguna pregunta, respondeme este mismo mail y lo conversamos.\n\n` +
+      `${greeting(n)}\n\n` +
+      `Por lo que respondiste, tu caso es de los que mejor responden al programa: ${perfil}. Lo sé no solo como urólogo: yo pasé por lo mismo, lo solucioné y desde entonces he ayudado a cientos de hombres.\n\n` +
+      `El objetivo es uno: que tu erección responda con otra persona igual que cuando estás solo. Y para eso hay que aprender a dejar de pensar en la erección y conectar con ese momento.\n\n` +
+      `Cómo se entrena eso, está explicado acá: ${LANDING}/?mseq=sq0\n\n` +
+      `Respondé este mail con un "recibido", así estamos en contacto.\n\n` +
       `Abrazo,\n` +
       `Mauro\n`,
   };
 }
 
-function mail1A(name: string): SecuenciaMail {
+/** "¿la pudiste ver?": día 1 del tier A · día 3 del tier B (pide la situación en dos líneas). */
+export function buildMailPudisteVer(name: string, track: SeqTrack): SecuenciaMail {
+  const n = (name || '').trim();
+  const cuerpo =
+    track === 'B'
+      ? '¿Pudiste ver la página del programa? Si te interesa, contame en dos líneas cómo es lo tuyo y te digo si es para vos.'
+      : '¿Pudiste ver el programa? Contame qué te pareció y qué te gustaría saber antes de arrancar.';
   return {
-    subject: '¿lo pudiste ver?',
+    subject: '¿la pudiste ver?',
+    text: `${greeting(n)}\n\n${cuerpo}\n\nAbrazo,\nMauro\n`,
+  };
+}
+
+/** Tier A, día 4: cierre con valor apilado, plan ordenado semana a semana y gatillo reflexivo. */
+export function buildMailA4(name: string): SecuenciaMail {
+  const n = (name || '').trim();
+  return {
+    subject: '¿hace cuánto que estás con esto?',
     text:
-      `${greeting(name)}\n\n` +
-      `Hace unos días completaste el test y te mandé el link del programa. ¿Lo pudiste ver?\n\n` +
-      `Te pregunto porque en tus respuestas hay algo que vale la pena mirar de nuevo: en solitario funcionás bien. Pensá un segundo lo que eso significa. Tu cuerpo está sano. Lo que se enciende cuando estás con otra persona es un circuito que se aprendió — y todo lo que se aprende se puede entrenar.\n\n` +
-      `Si ya lo viste y te quedó alguna pregunta, contestame este mail. Las leo todas.\n\n` +
+      `${greeting(n)}\n\n` +
+      `Pensá por un segundo hace cuánto que estás con esto. Todo ese tiempo se resuelve en 8 semanas, empezando hoy.\n\n` +
+      `Lo que te llevás al entrar es un plan ordenado, semana a semana. Cada semana trae sus videos, sus actividades de 15 a 30 minutos por día y sus herramientas descargables, en el orden justo para que cada paso se apoye en el anterior. Es lo que más me destacan los que ya lo hicieron: saber exactamente qué hacer cada día.\n\n` +
+      `Sumale una consulta individual conmigo para ajustar el plan a tu caso, acceso inmediato y para siempre, a tu ritmo. Todo eso entra completo en una sola inscripción, y queda tuyo desde el primer día.\n\n` +
+      `${LANDING}/?mseq=sq2\n\n` +
+      `Si algo te frena, respondé este mail y lo conversamos. Lo leo yo.\n\n` +
       `Abrazo,\n` +
       `Mauro\n`,
   };
 }
 
-function mail1B(name: string): SecuenciaMail {
-  return {
-    subject: '¿lo pudiste ver?',
-    text:
-      `${greeting(name)}\n\n` +
-      `Hace un tiempo completaste el test del programa y te mandé el link. Estas semanas estuve enfocado en los encuentros con pacientes y recién ahora retomo los mails — así que te escribo hoy: ¿lo pudiste ver?\n\n` +
-      `Antes de que contestes, mirá de nuevo un dato tuyo: en el test me contaste que en solitario funcionás bien. Pensá lo que eso significa. Tu cuerpo está sano. Lo que se enciende cuando estás con otra persona es un circuito que se aprendió — y todo lo que se aprende se puede entrenar.\n\n` +
-      `Si te quedó alguna pregunta, contestame este mail. Las leo todas.\n\n` +
-      `Abrazo,\n` +
-      `Mauro\n`,
-  };
-}
+const FRASE_FACTOR_B: Record<FactorMailB, string> = {
+  fisico: 'También puede haber una parte física para revisar, y eso lo vemos en la consulta individual que viene incluida.',
+  vinculo: 'También pesa lo que pasa en la pareja, y eso conviene mirarlo aparte del entrenamiento.',
+};
 
-function mail2(name: string): SecuenciaMail {
+/**
+ * Tier B, día 0: "sobre tu resultado". La frase por factor (físico / vínculo)
+ * nombra lo propio del caso; la respuesta del lead es la que lo califica.
+ */
+export function buildMailB0(name: string, factor: FactorMailB | null): SecuenciaMail {
+  const n = (name || '').trim();
+  const extra = factor ? ` ${FRASE_FACTOR_B[factor]}` : '';
   return {
-    subject: 'la frase que me dijo un amigo',
+    subject: 'sobre tu resultado',
     text:
-      `${greeting(name)}\n\n` +
-      `Tenía 18 años la primera vez que no se me paró. Y lo que vino después fue peor que esa noche: cada encuentro se convirtió en un examen. Yo entraba a la cama pensando "que funcione, que funcione" — y así no funciona nada.\n\n` +
-      `Un amigo me dijo una frase que no me olvido más: "si no mejorás, vas a necesitar pastillas toda tu vida".\n\n` +
-      `Se equivocó. No porque la cosa mejorara sola — sino porque entendí dónde estaba el problema de verdad. No era mi cuerpo. Era ese examen que yo mismo me tomaba cada vez.\n\n` +
-      `Hoy me dedico a esto. Y cada vez que un paciente me describe esa sensación de entrar a la cama a rendir, sé exactamente de qué me está hablando.\n\n` +
-      `Abrazo,\n` +
-      `Mauro\n`,
-  };
-}
-
-function mail3(name: string): SecuenciaMail {
-  return {
-    subject: 'tu cuerpo ya te dio la respuesta',
-    text:
-      `${greeting(name)}\n\n` +
-      `Retomo el dato de tu test: en solitario, todo funciona. Eso es tu cuerpo diciéndote que el circuito físico está intacto.\n\n` +
-      `Entonces, ¿qué pasa cuando hay otra persona? Se prende un sistema distinto: el de alerta. Tu cabeza se pone a observar, a anticipar, a medir. Y la erección necesita exactamente lo contrario — presencia, no vigilancia.\n\n` +
-      `Eso es lo que el programa entrena durante 8 semanas: bajar el sistema de alerta y volver a estar presente. La erección vuelve por añadidura, porque nunca se fue: la tuya funciona, ya lo sabés.\n\n` +
-      `Cuando quieras verlo en detalle:\n\n` +
-      `${LANDING}/?mseq=sq3\n\n` +
-      `Abrazo,\n` +
-      `Mauro\n`,
-  };
-}
-
-function mail4(name: string): SecuenciaMail {
-  return {
-    subject: 'una palabra',
-    text:
-      `${greeting(name)}\n\n` +
-      `Te hago una sola pregunta, y en serio me interesa la respuesta.\n\n` +
-      `Hiciste el test, viste el programa. Si todavía no arrancaste, algo hay. Contestame este mail con una palabra:\n\n` +
-      `precio — dudas — momento — otra\n\n` +
-      `Con esa palabra me alcanza. Te respondo yo, puntualmente sobre lo tuyo, sin vueltas de vendedor.\n\n` +
-      `Abrazo,\n` +
-      `Mauro\n`,
-  };
-}
-
-function mail5(name: string): SecuenciaMail {
-  return {
-    subject: 'cómo es por dentro',
-    text:
-      `${greeting(name)}\n\n` +
-      `Te cuento cómo es el programa por dentro, así lo ves concreto:\n\n` +
-      `8 semanas de trabajo, una por módulo. Videos y actividades de 15-30 minutos por día, a tu ritmo: nadie te corre, el acceso queda para vos. Herramientas descargables para cada semana. Y una consulta individual conmigo incluida, para revisar tu caso puntual cuando vos lo decidas.\n\n` +
-      `Empezás hoy y en la primera semana ya estás trabajando con las primeras herramientas.\n\n` +
-      `${LANDING}/?mseq=sq5\n\n` +
-      `Cualquier pregunta, respondeme por acá.\n\n` +
-      `Abrazo,\n` +
-      `Mauro\n\n` +
-      `PD: desde Argentina pagás en pesos por MercadoPago y tenés cuotas.\n`,
-  };
-}
-
-function mail6(name: string): SecuenciaMail {
-  return {
-    subject: 'los findes se repiten',
-    text:
-      `${greeting(name)}\n\n` +
-      `Domingo. Te escribo corto.\n\n` +
-      `Los fines de semana van a seguir llegando, uno atrás de otro. La diferencia entre uno y el siguiente no la hace el calendario — la hace lo que vos entrenaste entre uno y otro.\n\n` +
-      `Ocho semanas son dos meses de findes. Los que arrancaron hoy llegan distintos al noveno.\n\n` +
-      `${LANDING}/?mseq=sq6\n\n` +
-      `Abrazo,\n` +
-      `Mauro\n`,
-  };
-}
-
-function mail7(name: string): SecuenciaMail {
-  return {
-    subject: 'esto es lo que te propongo',
-    text:
-      `${greeting(name)}\n\n` +
-      `Te lo pongo simple, porque de esto estoy seguro.\n\n` +
-      `El programa son 8 semanas para entrenar lo que hoy se te enciende en la cama: el sistema de alerta. Incluye los 8 módulos, las herramientas de cada semana y una consulta individual conmigo. Acceso inmediato, y queda para siempre.\n\n` +
-      `Vos ya hiciste la parte más difícil: ponerle nombre a lo que te pasa. Tu propio test te lo mostró — en solitario funcionás bien, tu cuerpo está sano, lo que queda es entrenar la cabeza que te examina. Releé tus respuestas y contestate esta pregunta: ¿de verdad esto no es para vos?\n\n` +
-      `${LANDING}/?mseq=sq7\n\n` +
-      `Yo pongo el método y el seguimiento. Vos ponés el compromiso: 8 semanas.\n\n` +
-      `Abrazo,\n` +
-      `Mauro\n\n` +
-      `PD: desde Argentina pagás en pesos por MercadoPago y tenés cuotas.\n`,
-  };
-}
-
-function mail8(name: string): SecuenciaMail {
-  return {
-    subject: 'lo que sigue es tuyo',
-    text:
-      `${greeting(name)}\n\n` +
-      `Ya te conté todo lo que tenía para contarte. Lo que sigue es tuyo — y así tiene que ser: esto funciona cuando el que decide sos vos.\n\n` +
-      `Te dejo las dos puertas a mano.\n\n` +
-      `Arrancar el programa hoy:\n` +
-      `${LANDING}/?mseq=sq8\n\n` +
-      `O verlo conmigo antes, en una consulta:\n` +
-      `https://calendly.com/urologocarrillo\n\n` +
-      `Y si el momento es otro, guardá este mail. El día que lo retomes, respondeme y seguimos desde acá.\n\n` +
+      `${greeting(n)}\n\n` +
+      `Por lo que respondiste, en tu caso hay un componente de ansiedad que se entrena, y ahí el programa puede ayudarte.${extra}\n\n` +
+      `Lo sé como urólogo y porque yo pasé por lo mismo y lo solucioné.\n\n` +
+      `Mirá la página del programa: ahí están las 8 semanas, los videos y actividades de 15 a 30 minutos por día, las herramientas descargables y la consulta individual conmigo incluida.\n\n` +
+      `${LANDING}/?mseq=sqb0\n\n` +
+      `Cuando la veas, si te interesa, respondé este mail y contame en dos líneas cómo es lo tuyo. Con eso te digo si es para vos y cuál es el mejor camino.\n\n` +
       `Abrazo,\n` +
       `Mauro\n`,
   };
@@ -325,39 +269,21 @@ export function buildMailTierC(name: string): SecuenciaMail {
 }
 
 /**
- * Devuelve el mail de un paso de la secuencia.
- * @param step 0..8 (0 = M0, 1 = M1, 2..8 = M2..M8)
- * @param name  nombre (fallback: "" → "Hola,")
- * @param variant sólo relevante para step 1 (M1A vs M1B)
+ * Mail de un paso encolado de la secuencia (lo llama el motor drip al enviar).
+ *   track A: 1 → "¿la pudiste ver?" · 2 → "¿hace cuánto que estás con esto?"
+ *   track B: 1 → "¿la pudiste ver?" (versión B)
+ * step 0 = mail inmediato (sin datos del test: postest.ts usa buildMailA0/B0 con datos).
  */
-export function buildSecuenciaMail(
-  step: number,
-  name: string,
-  variant: MailVariant = 'A'
-): SecuenciaMail {
+export function buildSecuenciaMail(step: number, name: string, track: SeqTrack = 'A'): SecuenciaMail {
   const n = (name || '').trim();
-  switch (step) {
-    case 0:
-      return mail0(n);
-    case 1:
-      return variant === 'B' ? mail1B(n) : mail1A(n);
-    case 2:
-      return mail2(n);
-    case 3:
-      return mail3(n);
-    case 4:
-      return mail4(n);
-    case 5:
-      return mail5(n);
-    case 6:
-      return mail6(n);
-    case 7:
-      return mail7(n);
-    case 8:
-      return mail8(n);
-    default:
-      throw new Error(`Paso de secuencia inválido: ${step}`);
+  if (step === 0) return track === 'B' ? buildMailB0(n, null) : buildMailA0(n);
+  if (track === 'B') {
+    if (step === 1) return buildMailPudisteVer(n, 'B');
+  } else {
+    if (step === 1) return buildMailPudisteVer(n, 'A');
+    if (step === 2) return buildMailA4(n);
   }
+  throw new Error(`Paso de secuencia inválido: ${track}${step}`);
 }
 
 // ─── Cálculo de fechas (anclado al calendario de Argentina) ─────────
@@ -386,78 +312,16 @@ function addDays(day: Date, n: number): Date {
   return new Date(day.getTime() + n * DAY_MS);
 }
 
-/** 0 = domingo … 6 = sábado (día de la semana ART). */
-function dow(day: Date): number {
-  return day.getUTCDay();
-}
-
-function firstSundayAfter(day: Date): Date {
-  let d = addDays(day, 1);
-  while (dow(d) !== 0) d = addDays(d, 1);
-  return d;
-}
 
 /**
- * Dado M1 (un "día ART"), calcula M1..M8 según la cadencia del spec:
- *   M2 = primer domingo después de M1
- *   M3 = M2 + 2 días (martes)
- *   M4 = M3 + 3 días (viernes)   (spec dice +2-3; elegimos 3)
- *   M5 = M4 + 3 días (lunes)
- *   M6 = primer domingo después de M5 (segundo domingo)
- *   M7 = M6 + 2 días (martes)
- *   M8 = M7 + 3 días (viernes)
- * Devuelve 8 instantes (índice 0 = M1 … índice 7 = M8).
+ * Fechas de los pasos encolados para un lead que hizo el test en `testAt`:
+ * día ART del test + SECUENCIA_DIAS[track], cada uno a las 12:00 UTC (09:00 ART),
+ * así sale en la corrida de las 10:00 ART de ese día.
+ *   A → [día 1, día 4] · B → [día 3]
  */
-export function computeSequenceDatesFromM1(m1: Date): Date[] {
-  const M1 = artDay(m1.getUTCFullYear(), m1.getUTCMonth(), m1.getUTCDate());
-  const M2 = firstSundayAfter(M1);
-  const M3 = addDays(M2, 2);
-  const M4 = addDays(M3, 3);
-  const M5 = addDays(M4, 3);
-  const M6 = firstSundayAfter(M5);
-  const M7 = addDays(M6, 2);
-  const M8 = addDays(M7, 3);
-  return [M1, M2, M3, M4, M5, M6, M7, M8];
-}
-
-/**
- * Cadencia para un lead que entra por el webhook (nuevo o del stock reciente):
- *   M1 = enrolledAt + 2 días; si cae domingo → corre a lunes.
- * El resto se deriva con computeSequenceDatesFromM1.
- */
-export function computeSequenceDates(enrolledAt: Date): Date[] {
-  const base = artDayOf(enrolledAt);
-  let m1 = addDays(base, 2);
-  if (dow(m1) === 0) m1 = addDays(m1, 1); // domingo → lunes
-  return computeSequenceDatesFromM1(m1);
-}
-
-/**
- * M1 para el enrolamiento del STOCK: "próximo día hábil 10:00 ART".
- * Regla (spec: "si se corre jueves/viernes, M1 = viernes"):
- *   - viernes  → mismo viernes
- *   - sábado   → lunes (+2)
- *   - domingo  → lunes (+1)
- *   - lunes..jueves → día siguiente (próximo día hábil)
- * Se entrega en la corrida de las 10:00 ART de ese día.
- */
-export function computeStockM1(runAt: Date): Date {
-  const base = artDayOf(runAt);
-  switch (dow(base)) {
-    case 5: // viernes
-      return base;
-    case 6: // sábado → lunes
-      return addDays(base, 2);
-    case 0: // domingo → lunes
-      return addDays(base, 1);
-    default: // lunes..jueves → día siguiente
-      return addDays(base, 1);
-  }
-}
-
-/** Fechas M1..M8 para el stock, ancladas al M1 = próximo día hábil. */
-export function computeStockSequenceDates(runAt: Date): Date[] {
-  return computeSequenceDatesFromM1(computeStockM1(runAt));
+export function computeSequenceDates(testAt: Date, track: SeqTrack = 'A'): Date[] {
+  const base = artDayOf(testAt);
+  return SECUENCIA_DIAS[track].map((d) => addDays(base, d));
 }
 
 /**

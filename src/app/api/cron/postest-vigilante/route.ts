@@ -728,6 +728,7 @@ async function correr(dry: boolean, max: number, t0: number): Promise<NextRespon
           variante: f.variante || undefined,
           score: f.score,
           tier,
+          respuestas: f.respuestas,
         },
         { clientes, alreadyEnrolled, deferMarks }
       );

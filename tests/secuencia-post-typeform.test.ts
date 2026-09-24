@@ -1,16 +1,18 @@
 /**
- * Tests de la lógica pura de la secuencia post-Typeform:
- *   - computeSequenceDates / computeStockM1 (cadencia anclada al calendario ART)
+ * Tests de la lógica pura de la secuencia post-test (v6, 24/09/2026):
+ *   - computeSequenceDates (A: día 1 y 4 · B: día 3, anclados al calendario ART)
  *   - m1VariantForAge / parseArgDate / tierDePantalla
  *   - computeElegibles (exclusiones del enrolamiento)
  *   - estadoPausaSecuencia (skip por Estado del CRM)
- *   - buildSecuenciaMail (fallback de nombre + links ?mseq=sqN)
+ *   - builders de los mails (copy aprobado, sin cuotas, sin Calendly, sin edad)
  */
 import {
   computeSequenceDates,
-  computeSequenceDatesFromM1,
-  computeStockM1,
-  computeStockSequenceDates,
+  SECUENCIA_DIAS,
+  buildMailA0,
+  buildMailA4,
+  buildMailB0,
+  buildMailPudisteVer,
   m1VariantForAge,
   parseArgDate,
   tierDePantalla,
@@ -44,8 +46,7 @@ function instantWithArtDow(targetDow: number): Date {
 
 const DOW = { SUN: 0, MON: 1, TUE: 2, WED: 3, THU: 4, FRI: 5, SAT: 6 };
 
-describe('computeSequenceDates — cadencia y orden estricto', () => {
-  // Cubre lead que entra viernes, sábado, domingo y lunes.
+describe('computeSequenceDates — secuencia corta (v6)', () => {
   const entradas: Array<[string, number]> = [
     ['viernes', DOW.FRI],
     ['sábado', DOW.SAT],
@@ -53,82 +54,32 @@ describe('computeSequenceDates — cadencia y orden estricto', () => {
     ['lunes', DOW.MON],
   ];
 
-  it.each(entradas)('lead que entra %s: M1<M2<…<M8 estrictos y días distintos', (_label, dow) => {
-    const enrolledAt = instantWithArtDow(dow);
-    const dates = computeSequenceDates(enrolledAt);
-
-    expect(dates).toHaveLength(8);
-
-    // Estrictamente creciente → ningún mail el mismo día que otro.
-    for (let i = 0; i < dates.length - 1; i++) {
-      expect(dates[i].getTime()).toBeLessThan(dates[i + 1].getTime());
-      // separación mínima de 1 día
-      expect(dates[i + 1].getTime() - dates[i].getTime()).toBeGreaterThanOrEqual(86400000);
-    }
+  it.each(entradas)('tier A que entra %s: día 1 y día 4 a las 12:00 UTC', (_label, dow) => {
+    const testAt = instantWithArtDow(dow);
+    const dates = computeSequenceDates(testAt, 'A');
+    expect(dates).toHaveLength(2);
+    expect(SECUENCIA_DIAS.A).toEqual([1, 4]);
+    const base = Date.UTC(testAt.getUTCFullYear(), testAt.getUTCMonth(), testAt.getUTCDate(), 12);
+    expect(dates[0].getTime()).toBe(base + 1 * 86400000);
+    expect(dates[1].getTime()).toBe(base + 4 * 86400000);
+    expect(dates[0].getUTCHours()).toBe(12);
   });
 
-  it.each(entradas)('lead que entra %s: anclas de calendario correctas', (_label, dow) => {
-    const dates = computeSequenceDates(instantWithArtDow(dow));
-    const [M1, M2, M3, M4, M5, M6, M7, M8] = dates;
-
-    expect(artDow(M1)).not.toBe(DOW.SUN); // M1 nunca domingo
-    expect(artDow(M2)).toBe(DOW.SUN); // primer domingo
-    expect(artDow(M3)).toBe(DOW.TUE); // M2 + 2
-    expect(artDow(M4)).toBe(DOW.FRI); // M3 + 3
-    expect(artDow(M5)).toBe(DOW.MON); // M4 + 3
-    expect(artDow(M6)).toBe(DOW.SUN); // segundo domingo
-    expect(artDow(M7)).toBe(DOW.TUE); // martes siguiente a M6
-    expect(artDow(M8)).toBe(DOW.FRI); // viernes siguiente a M7
-
-    // M1 estrictamente antes de M2 (regla explícita del spec).
-    expect(M1.getTime()).toBeLessThan(M2.getTime());
+  it('tier B: un solo paso al día 3', () => {
+    const testAt = new Date('2026-09-24T20:30:00Z'); // 17:30 ART del 24/09
+    const dates = computeSequenceDates(testAt, 'B');
+    expect(dates).toHaveLength(1);
+    expect(dates[0].toISOString()).toBe('2026-09-27T12:00:00.000Z');
   });
 
-  it('M1 = enrolledAt + 2 días; si cae domingo corre a lunes', () => {
-    // Un viernes → +2 = domingo → debe correr a lunes.
-    const fri = instantWithArtDow(DOW.FRI);
-    const [M1] = computeSequenceDates(fri);
-    expect(artDow(M1)).toBe(DOW.MON);
+  it('un test a las 23:30 ART (02:30 UTC del día siguiente) ancla al día ART del test', () => {
+    const testAt = new Date('2026-09-25T02:30:00Z'); // 23:30 ART del 24/09
+    const [d1] = computeSequenceDates(testAt, 'A');
+    expect(d1.toISOString()).toBe('2026-09-25T12:00:00.000Z');
   });
 
-  it('computeSequenceDatesFromM1 respeta el M1 dado', () => {
-    const m1 = new Date('2026-07-10T12:00:00Z'); // viernes ART
-    const dates = computeSequenceDatesFromM1(m1);
-    expect(artDow(dates[0])).toBe(DOW.FRI);
-    expect(artDow(dates[1])).toBe(DOW.SUN);
-  });
-});
-
-describe('computeStockM1 — próximo día hábil', () => {
-  it('jueves → viernes', () => {
-    const m1 = computeStockM1(instantWithArtDow(DOW.THU));
-    expect(artDow(m1)).toBe(DOW.FRI);
-  });
-  it('viernes → mismo viernes', () => {
-    const run = instantWithArtDow(DOW.FRI);
-    const m1 = computeStockM1(run);
-    expect(artDow(m1)).toBe(DOW.FRI);
-    // misma fecha ART que el run
-    const runArt = new Date(run.getTime() - 3 * 3600e3);
-    expect(m1.getUTCDate()).toBe(runArt.getUTCDate());
-  });
-  it('sábado → lunes', () => {
-    expect(artDow(computeStockM1(instantWithArtDow(DOW.SAT)))).toBe(DOW.MON);
-  });
-  it('domingo → lunes', () => {
-    expect(artDow(computeStockM1(instantWithArtDow(DOW.SUN)))).toBe(DOW.MON);
-  });
-  it('lunes → martes', () => {
-    expect(artDow(computeStockM1(instantWithArtDow(DOW.MON)))).toBe(DOW.TUE);
-  });
-
-  it('computeStockSequenceDates ancla M2..M8 desde el M1 del stock', () => {
-    const dates = computeStockSequenceDates(instantWithArtDow(DOW.THU));
-    expect(artDow(dates[0])).toBe(DOW.FRI); // M1
-    expect(artDow(dates[1])).toBe(DOW.SUN); // M2
-    for (let i = 0; i < dates.length - 1; i++) {
-      expect(dates[i].getTime()).toBeLessThan(dates[i + 1].getTime());
-    }
+  it('por defecto usa el track A', () => {
+    expect(computeSequenceDates(new Date('2026-09-24T15:00:00Z'))).toHaveLength(2);
   });
 });
 
@@ -269,38 +220,76 @@ describe('computeElegibles — exclusiones del enrolamiento', () => {
   });
 });
 
-describe('buildSecuenciaMail', () => {
+describe('builders de la secuencia v6', () => {
+  const PROHIBIDO = [/cuota/i, /calendly/i, /a los 18/i, /con calma/i, /\bdudas\b/i, /\bpero\b/i, /Dr\./];
+
+  function sinProhibidos(text: string) {
+    for (const re of PROHIBIDO) expect(text).not.toMatch(re);
+  }
+
   it('usa el nombre si está, y "Hola," si no', () => {
-    expect(buildSecuenciaMail(0, 'Mauro').text.startsWith('Hola Mauro,')).toBe(true);
-    expect(buildSecuenciaMail(0, '').text.startsWith('Hola,')).toBe(true);
+    expect(buildMailA0('Mauro').text.startsWith('Hola Mauro,')).toBe(true);
+    expect(buildMailA0('').text.startsWith('Hola,')).toBe(true);
+    expect(buildSecuenciaMail(1, '', 'B').text.startsWith('Hola,')).toBe(true);
   });
 
-  it('M0/M3/M5/M6/M7/M8 llevan su link ?mseq=sqN', () => {
-    expect(buildSecuenciaMail(0, 'x').text).toContain('/?mseq=sq0');
-    expect(buildSecuenciaMail(3, 'x').text).toContain('/?mseq=sq3');
-    expect(buildSecuenciaMail(5, 'x').text).toContain('/?mseq=sq5');
-    expect(buildSecuenciaMail(6, 'x').text).toContain('/?mseq=sq6');
-    expect(buildSecuenciaMail(7, 'x').text).toContain('/?mseq=sq7');
-    expect(buildSecuenciaMail(8, 'x').text).toContain('/?mseq=sq8');
+  it('A0: asunto, frase de perfil según solitario, link sq0 y pedido de "recibido"', () => {
+    const si = buildMailA0('x', { soloOk: true });
+    const aveces = buildMailA0('x', { soloOk: false });
+    expect(si.subject).toBe('tu resultado del test');
+    expect(si.text).toContain('el cuerpo funciona, y la cabeza se acelera y desconecta');
+    expect(aveces.text).not.toContain('el cuerpo funciona');
+    expect(aveces.text).toContain('la cabeza se acelera y desconecta');
+    expect(si.text).toContain('/?mseq=sq0');
+    expect(si.text).toContain('"recibido"');
+    expect(buildMailA0('x').text).not.toContain('el cuerpo funciona'); // sin dato → se omite
+    sinProhibidos(si.text);
   });
 
-  it('M1 tiene variantes A y B distintas', () => {
-    const a = buildSecuenciaMail(1, 'x', 'A').text;
-    const b = buildSecuenciaMail(1, 'x', 'B').text;
-    expect(a).not.toBe(b);
-    expect(a).toContain('Hace unos días');
-    expect(b).toContain('Hace un tiempo');
+  it('día 1 (A) y día 3 (B) comparten asunto y difieren en el pedido', () => {
+    const a = buildMailPudisteVer('x', 'A');
+    const b = buildMailPudisteVer('x', 'B');
+    expect(a.subject).toBe('¿la pudiste ver?');
+    expect(b.subject).toBe('¿la pudiste ver?');
+    expect(a.text).toContain('qué te gustaría saber antes de arrancar');
+    expect(b.text).toContain('contame en dos líneas cómo es lo tuyo');
+    expect(a.text).not.toContain('urologia.ar'); // sin link: pide respuesta
+    sinProhibidos(a.text);
+    sinProhibidos(b.text);
   });
 
-  it('M8 incluye la puerta del Calendly', () => {
-    expect(buildSecuenciaMail(8, 'x').text).toContain('calendly.com/urologocarrillo');
+  it('A4: asunto gatillo, plan semana a semana, link sq2 y "lo conversamos"', () => {
+    const m = buildMailA4('x');
+    expect(m.subject).toBe('¿hace cuánto que estás con esto?');
+    expect(m.text).toContain('semana a semana');
+    expect(m.text).toContain('/?mseq=sq2');
+    expect(m.text).toContain('lo conversamos');
+    sinProhibidos(m.text);
   });
 
-  it('M2 no tiene CTA/link (mail de reconocimiento)', () => {
-    expect(buildSecuenciaMail(2, 'x').text).not.toContain('urologia.ar/recuperatuereccion');
+  it('B0: frase según factor (físico / vínculo / sin dato) y link sqb0', () => {
+    const f = buildMailB0('x', 'fisico');
+    const v = buildMailB0('x', 'vinculo');
+    const n = buildMailB0('x', null);
+    expect(f.subject).toBe('sobre tu resultado');
+    expect(f.text).toContain('parte física para revisar');
+    expect(v.text).toContain('lo que pasa en la pareja');
+    expect(n.text).not.toContain('parte física');
+    expect(n.text).not.toContain('en la pareja');
+    expect(n.text).toContain('/?mseq=sqb0');
+    expect(n.text).toContain('contame en dos líneas cómo es lo tuyo');
+    sinProhibidos(f.text);
+    sinProhibidos(v.text);
   });
 
-  it('paso inválido lanza error', () => {
+  it('buildSecuenciaMail: track A pasos 1-2, track B paso 1, otros lanzan', () => {
+    expect(buildSecuenciaMail(1, 'x', 'A').subject).toBe('¿la pudiste ver?');
+    expect(buildSecuenciaMail(2, 'x', 'A').subject).toBe('¿hace cuánto que estás con esto?');
+    expect(buildSecuenciaMail(1, 'x', 'B').text).toContain('dos líneas');
+    expect(buildSecuenciaMail(0, 'x', 'A').subject).toBe('tu resultado del test');
+    expect(buildSecuenciaMail(0, 'x', 'B').subject).toBe('sobre tu resultado');
+    expect(() => buildSecuenciaMail(3, 'x', 'A')).toThrow();
+    expect(() => buildSecuenciaMail(2, 'x', 'B')).toThrow();
     expect(() => buildSecuenciaMail(9, 'x')).toThrow();
   });
 });

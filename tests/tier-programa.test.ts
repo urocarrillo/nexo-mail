@@ -2,7 +2,7 @@
  * Casos de validación del cálculo de tier del test del programa DE
  * (réplica de la fórmula del Apps Script del Sheet CRM).
  */
-import { calcularTier, respuestaDesconocida, tierParaEnvio } from '@/lib/tier-programa';
+import { calcularTier, ereccionSoloOk, factorTierB, respuestaDesconocida, tierParaEnvio } from '@/lib/tier-programa';
 
 type Caso = [string, string, string, string, string, string, string];
 
@@ -288,5 +288,32 @@ describe('forzadores tempranos con preguntas salteadas por Typeform', () => {
   });
   it('sin forzador y con pareja vacía → null (sigue incompleta)', () => {
     expect(calcularTier({ edad: '18 - 49 años', ereccion: 'Sí, casi siempre', salud: 'No tengo enfermedades', pareja: '', consumo: 'Ocasional', compromiso: 'Sí, me comprometo', inversion: '' })).toBeNull();
+  });
+});
+
+describe('datos para los mails post-test (v6)', () => {
+  it('ereccionSoloOk: "Sí…" → true; "A veces" / vacío / undefined → false', () => {
+    expect(ereccionSoloOk({ ereccion: 'Sí, casi siempre' })).toBe(true);
+    expect(ereccionSoloOk({ ereccion: '  Sí' })).toBe(true);
+    expect(ereccionSoloOk({ ereccion: 'A veces sí, a veces no' })).toBe(false);
+    expect(ereccionSoloOk({ ereccion: '' })).toBe(false);
+    expect(ereccionSoloOk(undefined)).toBe(false);
+  });
+
+  it('factorTierB: físico manda (a veces / enfermedad / 50+)', () => {
+    expect(factorTierB({ edad: '18 - 49 años', ereccion: 'A veces', salud: 'No tengo enfermedades', pareja: 'Tengo pareja pero con conflictos' })).toBe('fisico');
+    expect(factorTierB({ edad: '18 - 49 años', ereccion: 'Sí', salud: 'Tengo enfermedad crónica controlada', pareja: 'No tengo pareja estable' })).toBe('fisico');
+    expect(factorTierB({ edad: '50 años o más', ereccion: 'Sí', salud: 'No tengo enfermedades', pareja: 'No tengo pareja estable' })).toBe('fisico');
+  });
+
+  it('factorTierB: vínculo cuando la pareja resta y no hay factor físico', () => {
+    expect(factorTierB({ edad: '18 - 49 años', ereccion: 'Sí', salud: 'No tengo enfermedades', pareja: 'Tengo pareja pero con conflictos' })).toBe('vinculo');
+    expect(factorTierB({ edad: '18 - 49 años', ereccion: 'Sí', salud: 'No tengo enfermedades', pareja: 'Relaciones ocasionales' })).toBe('vinculo');
+  });
+
+  it('factorTierB: sin factor reconocible o sin datos → null', () => {
+    expect(factorTierB({ edad: '18 - 49 años', ereccion: 'Sí', salud: 'No tengo enfermedades', pareja: 'Tengo pareja estable y buena relación' })).toBe(null);
+    expect(factorTierB({ edad: '', ereccion: '', salud: '', pareja: '' })).toBe(null);
+    expect(factorTierB(undefined)).toBe(null);
   });
 });

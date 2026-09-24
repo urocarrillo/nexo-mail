@@ -694,6 +694,7 @@ async function despacharYMarcar(
         score: tier.score,
         tier: tierEnvio,
         pais: f.pais,
+        respuestas: respuestasDesdeLetras(f),
       },
       { deferMarks }
     );

@@ -1,10 +1,10 @@
 /**
- * Envío de test de la secuencia post-Typeform.
+ * Envío de test de la secuencia post-test (v6, 24/09/2026).
  *
- * Manda AHORA los 9 mails (M0, M1A, M1B, M2..M8) al email del query, con los
- * asuntos prefijados "[TEST sqN] ". Es lo ÚNICO que envía mails de esta tarea,
- * y sólo al email pasado en ?to=. Sirve para revisar el copy en el inbox antes
- * de enrolar a nadie.
+ * Manda AHORA los 7 mails de la secuencia corta al email del query, con los
+ * asuntos prefijados "[TEST …] ": A0 (solitario sí / a veces), A1, A4, B0
+ * (factor físico / vínculo) y B3. Es lo ÚNICO que envía mails de esta tarea,
+ * y sólo al email pasado en ?to=. Sirve para revisar el copy en el inbox.
  *
  * Protegido con API_SECRET_KEY (query ?token= o header x-api-key).
  *
@@ -16,7 +16,13 @@ import { NextRequest, NextResponse } from 'next/server';
 export const maxDuration = 30;
 
 import { sendPlainSecuencia } from '@/lib/email-drip';
-import { buildSecuenciaMail, type MailVariant } from '@/lib/secuencia-post-typeform';
+import {
+  buildMailA0,
+  buildMailA4,
+  buildMailB0,
+  buildMailPudisteVer,
+  type SecuenciaMail,
+} from '@/lib/secuencia-post-typeform';
 
 function authorized(request: NextRequest): boolean {
   const url = new URL(request.url);
@@ -28,18 +34,15 @@ function validEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-// Orden de la muestra: M0, M1A, M1B, M2..M8.
-const SPECS: Array<{ label: string; step: number; variant: MailVariant }> = [
-  { label: 'sq0', step: 0, variant: 'A' },
-  { label: 'sq1A', step: 1, variant: 'A' },
-  { label: 'sq1B', step: 1, variant: 'B' },
-  { label: 'sq2', step: 2, variant: 'A' },
-  { label: 'sq3', step: 3, variant: 'A' },
-  { label: 'sq4', step: 4, variant: 'A' },
-  { label: 'sq5', step: 5, variant: 'A' },
-  { label: 'sq6', step: 6, variant: 'A' },
-  { label: 'sq7', step: 7, variant: 'A' },
-  { label: 'sq8', step: 8, variant: 'A' },
+// Orden de la muestra: tier A (día 0, 1, 4) y tier B (día 0, 3).
+const SPECS: Array<{ label: string; build: (name: string) => SecuenciaMail }> = [
+  { label: 'A0 solitario-sí', build: (n) => buildMailA0(n, { soloOk: true }) },
+  { label: 'A0 solitario-a-veces', build: (n) => buildMailA0(n, { soloOk: false }) },
+  { label: 'A1 día 1', build: (n) => buildMailPudisteVer(n, 'A') },
+  { label: 'A4 día 4', build: (n) => buildMailA4(n) },
+  { label: 'B0 físico', build: (n) => buildMailB0(n, 'fisico') },
+  { label: 'B0 vínculo', build: (n) => buildMailB0(n, 'vinculo') },
+  { label: 'B3 día 3', build: (n) => buildMailPudisteVer(n, 'B') },
 ];
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -60,7 +63,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const results: Array<{ label: string; ok: boolean; messageId?: string; error?: string }> = [];
   for (const s of SPECS) {
-    const m = buildSecuenciaMail(s.step, name, s.variant);
+    const m = s.build(name);
     const subject = `[TEST ${s.label}] ${m.subject}`;
     const r = await sendPlainSecuencia(to, name || undefined, subject, m.text);
     results.push({ label: s.label, ok: r.success, messageId: r.messageId, error: r.error });

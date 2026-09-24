@@ -19,6 +19,7 @@ import {
   SECUENCIA_SENDER,
   SECUENCIA_TAG,
   type MailVariant,
+  type SeqTrack,
 } from './secuencia-post-typeform';
 import {
   buildDurarMasMail,
@@ -113,7 +114,8 @@ interface ScheduledEmail {
   // ── Secuencias inline (mails plain sin template de Brevo) ──
   kind?: 'template' | 'secuencia' | 'recupero' | 'durar-mas' | 'firme-seguro' | 'combo' | 'rescate-a'; // undefined = 'template' (retrocompat)
   seqStep?: number; // secuencia: 1..8 (M1..M8) · durar-mas: 1..6 (dm1..dm6) · firme-seguro: 1..5 (fs1..fs5) · combo: 1..5 (ei1..ei5) · rescate-a: 2..4 (R2..R4)
-  mailVariant?: MailVariant; // sólo relevante para M1 (A/B)
+  mailVariant?: MailVariant; // legado: variante del M1 viejo (A/B)
+  seqTrack?: SeqTrack; // secuencia v6 (24/09/2026): 'A' (día 1, día 4) · 'B' (día 3). Sin track = entry legado M1..M8
   rescateVariante?: string; // rescate-a: valor de la columna Variante del CRM (PD de R3)
   rescateRowIndex?: number; // rescate-a: fila del CRM evaluada al enrolar (Estado + marca)
   attempts?: number; // rescate-a: intentos de envío (reintento de 'failed' hasta RESCATE_MAX_ATTEMPTS)
@@ -409,33 +411,32 @@ export async function getEnrolledSecuenciaEmails(): Promise<Set<string>> {
 }
 
 /**
- * Enrola un email en la secuencia post-Typeform (M1..M8).
- * `dates` = 8 instantes (M1..M8) ya calculados por el caller
- * (computeSequenceDates para leads nuevos, computeStockSequenceDates para stock).
- * M0 NO se encola acá: es el mail inmediato del webhook.
+ * Enrola un email en la secuencia post-test corta (v6, 24/09/2026).
+ * `dates` = instantes de cada paso ya calculados por el caller
+ * (computeSequenceDates(testAt, track)): A → [día 1, día 4] · B → [día 3].
+ * El mail 0 NO se encola acá: es el mail inmediato del post-test.
  *
  * @param alreadyEnrolled set opcional para dedupe en bulk (evita re-encolar).
  */
 export async function enrollSecuencia(params: {
   email: string;
   name?: string;
-  variant: MailVariant;
-  dates: Date[]; // length 8, M1..M8
+  track: SeqTrack;
+  dates: Date[];
   alreadyEnrolled?: Set<string>;
 }): Promise<{ scheduled: number; skipped?: 'already-enrolled' | 'bad-dates' }> {
   const email = (params.email || '').trim().toLowerCase();
-  if (params.dates.length !== 8) return { scheduled: 0, skipped: 'bad-dates' };
+  if (params.dates.length === 0) return { scheduled: 0, skipped: 'bad-dates' };
   if (params.alreadyEnrolled?.has(email)) return { scheduled: 0, skipped: 'already-enrolled' };
 
   const now = new Date().toISOString();
   const fields: Record<string, string> = {};
 
-  for (let i = 0; i < 8; i++) {
-    const seqStep = i + 1; // M1..M8
-    const variant: MailVariant = seqStep === 1 ? params.variant : 'A';
-    const { subject } = buildSecuenciaMail(seqStep, params.name || '', variant);
+  for (let i = 0; i < params.dates.length; i++) {
+    const seqStep = i + 1;
+    const { subject } = buildSecuenciaMail(seqStep, params.name || '', params.track);
     const entry: ScheduledEmail = {
-      id: `sq_${Date.now()}_${seqStep}_${Math.random().toString(36).slice(2, 8)}`,
+      id: `sq_${Date.now()}_${params.track}${seqStep}_${Math.random().toString(36).slice(2, 8)}`,
       email,
       name: params.name,
       tag: SECUENCIA_TAG,
@@ -447,17 +448,17 @@ export async function enrollSecuencia(params: {
       createdAt: now,
       kind: 'secuencia',
       seqStep,
-      mailVariant: seqStep === 1 ? params.variant : undefined,
+      seqTrack: params.track,
     };
     fields[entry.id] = JSON.stringify(entry);
   }
 
-  // Un solo hset con los 8 pasos (clave para el enrolamiento en bulk del stock).
+  // Un solo hset con todos los pasos.
   await kv.hset(DRIP_QUEUE_KEY, fields);
 
   params.alreadyEnrolled?.add(email);
-  console.log(`Secuencia enrolada: ${email} (variante M1${params.variant}, 8 mails)`);
-  return { scheduled: 8 };
+  console.log(`Secuencia enrolada: ${email} (track ${params.track}, ${params.dates.length} mails)`);
+  return { scheduled: params.dates.length };
 }
 
 interface SecuenciaRunResult {
@@ -567,6 +568,12 @@ async function processSecuenciaDue(
       await cancel(id, entry, 'blacklist');
       continue;
     }
+    // ── Entries de la secuencia vieja (M2..M8, sin track): se cancelan. El M1
+    //    viejo (step 1) sale con el texto nuevo "¿la pudiste ver?" (track A). ──
+    if (!entry.seqTrack && step >= 2) {
+      await cancel(id, entry, 'secuencia-legacy');
+      continue;
+    }
 
     // ── Orden estricto: no sale M_N si no salió M_(N-1) ──
     if (step >= 2) {
@@ -584,7 +591,7 @@ async function processSecuenciaDue(
 
     // ── Envío ──
     res.processed++;
-    const mail = buildSecuenciaMail(step, entry.name || '', entry.mailVariant || 'A');
+    const mail = buildSecuenciaMail(step, entry.name || '', entry.seqTrack || 'A');
     const result = await sendPlainSecuencia(email, entry.name, mail.subject, mail.text);
 
     if (result.success) {
@@ -592,10 +599,11 @@ async function processSecuenciaDue(
       entry.status = 'sent';
       entry.sentAt = now.toISOString();
       await kv.hset(DRIP_QUEUE_KEY, { [id]: JSON.stringify(entry) });
-      console.log(`Secuencia enviada: sq${step} → ${email}`);
-      // Registro en el Sheet (marca sqN enviado dd/mm) sobre la primera fila.
+      const marca = `sq${entry.seqTrack === 'B' ? 'b' : ''}${step}`;
+      console.log(`Secuencia enviada: ${marca} → ${email}`);
+      // Registro en el Sheet (marca sqN / sqbN enviado dd/mm) sobre la primera fila.
       const row = rows[0];
-      if (row) sheetMarks.push({ rowIndex: row.rowIndex, text: `sq${step} enviado ${fechaArgDDMM(now)}` });
+      if (row) sheetMarks.push({ rowIndex: row.rowIndex, text: `${marca} enviado ${fechaArgDDMM(now)}` });
     } else {
       res.failed++;
       entry.status = 'failed';

@@ -5,23 +5,25 @@
  * Comportamiento por tier:
  *  - C   → mail Tier C (Calendly) vía sendPlainSecuencia + marca en columna Secuencia.
  *  - A/B → filtro cliente (fail-open), skip si cliente-programa, marca CRM si
- *          cliente-otro, contacto Brevo lista 24, mail M0 (A) o mail B,
- *          enrolamiento en la secuencia solo tier A lead puro.
+ *          cliente-otro, contacto Brevo lista 24, mail A0 (A) o mail B0 (B),
+ *          enrolamiento en la secuencia corta (A: día 1 y 4 · B: día 3) solo
+ *          si es lead puro. Secuencia v6 del 24/09/2026.
  */
 import { kv } from '@vercel/kv';
 import { getClienteInfo, clienteCellText, type ClientesMap, type EstadoCliente } from '@/lib/clientes';
 import { markClienteInCRM, markSecuenciaForEmails } from '@/lib/crm-sheet';
 import { enrollSecuencia, getEnrolledSecuenciaEmails, sendPlainSecuencia } from '@/lib/email-drip';
 import {
-  buildSecuenciaMail,
+  buildMailA0,
+  buildMailB0,
   buildMailTierC,
   computeSequenceDates,
   fechaArgDDMM,
 } from '@/lib/secuencia-post-typeform';
+import { ereccionSoloOk, factorTierB, type RespuestasMail } from '@/lib/tier-programa';
 
 const POSTEST_LIST_ID = 24; // "PROGRAMA Control Mental" en Brevo
 const SENDER = { name: 'Mauro Carrillo', email: 'mauro@urologia.ar' };
-const LANDING = 'https://urologia.ar/recuperatuereccion';
 const BREVO_TIMEOUT_MS = 8000;
 const AUX_TIMEOUT_MS = 8000; // Woo (mapa de clientes), KV drip:queue: etapas fail-open
 
@@ -62,6 +64,12 @@ export interface TypeformPayload {
   tier: Tier;
   /** ISO-2 (o 'XX') del test propio; Typeform no lo manda. */
   pais?: string;
+  /**
+   * Respuestas crudas del test (edad, erección en solitario, salud, pareja):
+   * deciden la frase de perfil del mail A0 y la frase por factor del mail B0.
+   * El webhook de Typeform no las manda → mails sin esas frases.
+   */
+  respuestas?: RespuestasMail;
 }
 
 export interface DispatchResult {
@@ -157,22 +165,6 @@ export function parsePayload(
 function firstName(name?: string): string {
   if (!name) return '';
   return name.trim().split(/\s+/)[0] || '';
-}
-
-function buildMailB(name: string): { subject: string; text: string } {
-  const greeting = name ? `Hola ${name},` : 'Hola,';
-  return {
-    subject: 'Espero poder ayudarte',
-    text:
-      `${greeting}\n\n` +
-      `Te cuento que ya recibí el resultado del test.\n\n` +
-      `Por lo que contás, el programa puede ayudarte con tu situación.\n\n` +
-      `Te dejo el link para que lo veas tranquilo y decidas:\n\n` +
-      `${LANDING}\n\n` +
-      `Si te interesa saber más respecto al programa, respondé este correo y lo vemos.\n\n` +
-      `Abrazo,\n` +
-      `Mauro\n`,
-  };
 }
 
 async function brevoCreateOrUpdateContact(p: TypeformPayload): Promise<{ ok: boolean; error?: string }> {
@@ -351,8 +343,12 @@ export async function dispatchPostTest(
   }
 
   const name = firstName(payload.name);
-  // Tier A → M0 de la secuencia post-Typeform ("Buenas noticias"). Tier B → mail B.
-  const mail = payload.tier === 'A' ? buildSecuenciaMail(0, name) : buildMailB(name);
+  // Tier A → A0 "tu resultado del test" (frase de perfil según solitario).
+  // Tier B → B0 "sobre tu resultado" (frase según el factor que lo hace B).
+  const mail =
+    payload.tier === 'A'
+      ? buildMailA0(name, { soloOk: ereccionSoloOk(payload.respuestas) })
+      : buildMailB0(name, factorTierB(payload.respuestas));
 
   const contactResult = await brevoCreateOrUpdateContact(payload);
   if (!contactResult.ok) {
@@ -378,20 +374,21 @@ export async function dispatchPostTest(
   }
   await marcarEnviadoKV(payload.email);
 
-  // Enrolamiento en la secuencia (M1..M8): SOLO tier A que sea lead puro.
-  // Los cliente-otro reciben el M0 pero no se enrolan: el re-chequeo
-  // esCliente() los cancelaría en el primer envío.
+  // Enrolamiento en la secuencia corta (A: día 1 y día 4 · B: día 3): SOLO
+  // lead puro. Los cliente-otro reciben el mail 0 pero no se enrolan: el
+  // re-chequeo esCliente() los cancelaría en el primer envío.
   let enrolled = false;
-  if (payload.tier === 'A' && estado === 'lead') {
+  if (estado === 'lead') {
     try {
       const already =
         opts.alreadyEnrolled ??
         (await withTimeout(getEnrolledSecuenciaEmails(), AUX_TIMEOUT_MS, 'getEnrolledSecuenciaEmails'));
-      const dates = computeSequenceDates(new Date());
+      const track = payload.tier === 'A' ? 'A' : 'B';
+      const dates = computeSequenceDates(new Date(), track);
       const r = await enrollSecuencia({
         email: payload.email,
         name,
-        variant: 'A', // lead nuevo → siempre M1A
+        track,
         dates,
         alreadyEnrolled: already,
       });

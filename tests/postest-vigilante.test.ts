@@ -410,14 +410,15 @@ describe('envío', () => {
     expect(res.status).toBe(200);
     expect(mockedDispatch).toHaveBeenCalledTimes(1);
     expect(mockedDispatch).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         email: 'nuevo@x.com',
         name: 'Pedro Gómez',
         pantalla: 'A',
         variante: 'A-Limpia',
         score: 110,
         tier: 'A',
-      },
+        respuestas: expect.objectContaining({ ereccion: expect.any(String) }),
+      }),
       // cargas auxiliares una vez por corrida + marcas diferidas a la fila conocida
       { clientes: expect.any(Map), alreadyEnrolled: expect.any(Set), deferMarks: true }
     );

@@ -1,10 +1,10 @@
 /**
- * Enrolamiento del stock en la secuencia post-Typeform (Pantalla A).
+ * Enrolamiento del stock en la secuencia post-test (Pantalla A). Herramienta
+ * de julio 2026; desde la v6 (24/09/2026) encola la secuencia corta del track A
+ * (día 1 y día 4 contados desde hoy).
  *
  * Lee el Sheet CRM completo, calcula elegibles (Pantalla A, email único, NO
- * cliente, NO en la exclusión 1-a-1, Estado vacío), los divide en variante M1A
- * (test ≤7 días) / M1B (8+ días) y los encola con M1 = próximo día hábil 10:00
- * ART. El resto de la cadencia (M2..M8) se ancla al calendario desde M1.
+ * cliente, NO en la exclusión 1-a-1, Estado vacío) y los encola.
  *
  * La blacklist NO se filtra acá (cara en bulk): se re-chequea antes de CADA
  * envío en el motor drip, así que ningún blacklisted llega a recibir un mail.
@@ -23,12 +23,7 @@ export const maxDuration = 60;
 import { getClientes, normalizeEmail } from '@/lib/clientes';
 import { readCrmSheet } from '@/lib/crm-sheet';
 import { enrollSecuencia, getEnrolledSecuenciaEmails } from '@/lib/email-drip';
-import {
-  computeElegibles,
-  computeStockSequenceDates,
-  computeStockM1,
-  type StockRow,
-} from '@/lib/secuencia-post-typeform';
+import { computeElegibles, computeSequenceDates, type StockRow } from '@/lib/secuencia-post-typeform';
 
 function authorized(request: NextRequest): boolean {
   const url = new URL(request.url);
@@ -74,12 +69,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const countA = elegibles.filter((e) => e.variant === 'A').length;
     const countB = elegibles.filter((e) => e.variant === 'B').length;
 
-    const m1 = computeStockM1(now);
-    const dates = computeStockSequenceDates(now);
-    const cadencia = ['M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M7', 'M8'].map((m, i) => ({
-      mail: m,
-      fecha: dates[i].toISOString(),
-    }));
+    const dates = computeSequenceDates(now, 'A');
+    const cadencia = ['día 1', 'día 4'].map((m, i) => ({ mail: m, fecha: dates[i].toISOString() }));
 
     let enrolados = 0;
     let yaEnrolados = 0;
@@ -89,7 +80,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         const r = await enrollSecuencia({
           email: el.email,
           name: el.nombre || undefined,
-          variant: el.variant,
+          track: 'A',
           dates,
           alreadyEnrolled: already,
         });
@@ -115,7 +106,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       },
       descartes,
       cadencia: {
-        m1: m1.toISOString(),
         pasos: cadencia,
       },
       enrolamiento: {

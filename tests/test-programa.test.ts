@@ -583,7 +583,16 @@ describe("step 'final'", () => {
     // Dispatch con pais y tier A
     expect(mockedDispatch).toHaveBeenCalledTimes(1);
     expect(mockedDispatch).toHaveBeenCalledWith(
-      { email: 'juan@example.com', name: 'Juan Pérez', pantalla: 'A', variante: 'A-Limpia', score: 110, tier: 'A', pais: 'AR' },
+      expect.objectContaining({
+        email: 'juan@example.com',
+        name: 'Juan Pérez',
+        pantalla: 'A',
+        variante: 'A-Limpia',
+        score: 110,
+        tier: 'A',
+        pais: 'AR',
+        respuestas: expect.objectContaining({ ereccion: expect.any(String) }),
+      }),
       { deferMarks: true }
     );
 

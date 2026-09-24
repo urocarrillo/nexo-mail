@@ -151,3 +151,38 @@ export function tierParaEnvio(pantalla: string | undefined | null): TierEnvio | 
   if (p === 'C') return 'C';
   return null;
 }
+
+// ─── Datos para los mails post-test (mismos prefijos que el scoring) ──
+
+export interface RespuestasMail {
+  edad?: string;
+  ereccion?: string;
+  salud?: string;
+  pareja?: string;
+}
+
+/** true si el lead respondió que en solitario la erección funciona ("Sí…"). */
+export function ereccionSoloOk(r: RespuestasMail | undefined | null): boolean {
+  return empieza(clean(r?.ereccion), 'Sí');
+}
+
+export type FactorB = 'fisico' | 'vinculo';
+
+/**
+ * Factor dominante que hace B a un lead, para la frase del mail B (24/09/2026):
+ *   'fisico'  → erección "A veces" en solitario, enfermedad o 50+ (se revisa en la consulta)
+ *   'vinculo' → pareja con conflicto / sin estabilidad, sin factor físico
+ *   null      → sin datos o sin factor reconocible (mail B sin frase extra)
+ */
+export function factorTierB(r: RespuestasMail | undefined | null): FactorB | null {
+  if (!r) return null;
+  const edad = clean(r.edad);
+  const ereccion = clean(r.ereccion);
+  const salud = clean(r.salud);
+  const pareja = clean(r.pareja);
+  const fisico =
+    empieza(ereccion, 'A veces') || empieza(salud, 'Tengo enfermedad') || (edad !== '' && !empieza(edad, '18'));
+  if (fisico) return 'fisico';
+  const parejaOk = pareja === '' || empieza(pareja, 'No tengo') || empieza(pareja, 'Tengo pareja estable y');
+  return parejaOk ? null : 'vinculo';
+}

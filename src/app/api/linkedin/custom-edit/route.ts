@@ -201,8 +201,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // 2. Apply custom instruction with Claude
     const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-5',
       max_tokens: 1500,
+      thinking: { type: 'disabled' },
       system: buildEditSystemPrompt(),
       messages: [
         {

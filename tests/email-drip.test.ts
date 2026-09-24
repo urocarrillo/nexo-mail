@@ -118,21 +118,27 @@ afterEach(() => {
 });
 
 describe('enqueueRecupero (T9)', () => {
-  it('encola un mail de recupero kind=recupero con sendAt = +2 h', async () => {
-    const r = await enqueueRecupero({ email: 'Lead@X.com', name: 'Juan', orderId: '999' });
+  it('encola R1 (+1 h) y R2 (+20 h) kind=recupero con los datos del pedido', async () => {
+    const r = await enqueueRecupero({ email: 'Lead@X.com', name: 'Juan', orderId: '999', orderKey: 'wc_order_abc', productId: 3208, curso: 'Curso EP' });
     expect(r.enqueued).toBe(true);
 
-    const entries = queueEntries();
-    expect(entries).toHaveLength(1);
+    const entries = queueEntries().sort((a, b) => Number((a as Record<string, unknown>).seqStep) - Number((b as Record<string, unknown>).seqStep));
+    expect(entries).toHaveLength(2);
     const e = entries[0] as Record<string, string>;
     expect(e.kind).toBe('recupero');
     expect(e.tag).toBe(RECUPERO_TAG);
     expect(e.email).toBe('lead@x.com'); // normalizado
     expect(e.status).toBe('pending');
-    expect(e.subject).toBe('se trabó tu inscripción');
+    expect(e.subject).toBe('todavía estás a tiempo');
+    expect(e.orderId).toBe('999');
+    expect(e.orderKey).toBe('wc_order_abc');
+    expect(e.curso).toBe('Curso EP');
 
     const delta = new Date(e.sendAt).getTime() - new Date(e.createdAt).getTime();
-    expect(delta).toBe(2 * 60 * 60 * 1000);
+    expect(delta).toBe(1 * 60 * 60 * 1000);
+    const e2 = entries[1] as Record<string, string>;
+    expect(e2.subject).toBe('hoy es un gran día para empezar');
+    expect(new Date(e2.sendAt).getTime() - new Date(e2.createdAt).getTime()).toBe(20 * 60 * 60 * 1000);
 
     // Dedupe key reclamada.
     expect(kvMock.__store.has('recupero-dedupe:lead@x.com')).toBe(true);
@@ -146,8 +152,8 @@ describe('enqueueRecupero (T9)', () => {
     expect(r2.enqueued).toBe(false);
     expect(r2.reason).toBe('dedupe');
 
-    // Sólo un mail en la cola.
-    expect(queueEntries()).toHaveLength(1);
+    // Sólo la campaña del primer pedido en la cola (R1 + R2).
+    expect(queueEntries()).toHaveLength(2);
   });
 
   it('skip si ya es cliente (pudo pagar con otra orden) — no encola ni reclama dedupe', async () => {
@@ -165,11 +171,12 @@ describe('cancelDripForEmail cancela también los recupero pendientes (T9 regla 
   it('marca cancelled el recupero al comprar', async () => {
     await enqueueRecupero({ email: 'x@x.com', name: 'Ana', orderId: '1' });
     const { cancelled } = await cancelDripForEmail('X@X.com');
-    expect(cancelled).toBe(1);
+    expect(cancelled).toBe(2); // R1 y R2
 
-    const e = queueEntries()[0] as Record<string, string>;
-    expect(e.status).toBe('cancelled');
-    expect(e.cancelReason).toBe('compra');
+    for (const e of queueEntries() as Record<string, string>[]) {
+      expect(e.status).toBe('cancelled');
+      expect(e.cancelReason).toBe('compra');
+    }
   });
 });
 

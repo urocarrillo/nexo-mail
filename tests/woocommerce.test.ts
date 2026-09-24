@@ -18,18 +18,24 @@ jest.mock('@/lib/email-drip', () => ({
   cancelDripForEmail: jest.fn(),
   enqueueRecupero: jest.fn(),
 }));
+jest.mock('@/lib/mp-pedidos', () => ({
+  enviarBienvenida: jest.fn(async () => ({ enviado: true })),
+  cerrarCasoAccesoPorPedido: jest.fn(async () => ({ cerrado: false, motivo: 'sin caso abierto' })),
+}));
 
 import { GET, POST, HEAD } from '@/app/api/webhook/woocommerce/route';
 import { markAsPurchased } from '@/lib/brevo';
 import { markLeadAsPurchased } from '@/lib/storage';
 import { markClienteInCRM } from '@/lib/crm-sheet';
 import { cancelDripForEmail, enqueueRecupero } from '@/lib/email-drip';
+import { enviarBienvenida } from '@/lib/mp-pedidos';
 
 const mockedMarkAsPurchased = markAsPurchased as jest.MockedFunction<typeof markAsPurchased>;
 const mockedMarkLeadAsPurchased = markLeadAsPurchased as jest.MockedFunction<typeof markLeadAsPurchased>;
 const mockedMarkClienteInCRM = markClienteInCRM as jest.MockedFunction<typeof markClienteInCRM>;
 const mockedCancelDrip = cancelDripForEmail as jest.MockedFunction<typeof cancelDripForEmail>;
 const mockedEnqueueRecupero = enqueueRecupero as jest.MockedFunction<typeof enqueueRecupero>;
+const mockedEnviarBienvenida = enviarBienvenida as jest.MockedFunction<typeof enviarBienvenida>;
 
 function generateSignature(payload: string, secret: string): string {
   return crypto
@@ -153,11 +159,15 @@ describe('WooCommerce Webhook API', () => {
       expect(response.status).toBe(200);
       expect(data.success).toBe(true);
       expect(data.message).toContain('recupero');
-      expect(mockedEnqueueRecupero).toHaveBeenCalledWith({
-        email: 'customer@example.com',
-        name: 'John',
-        orderId: '12345',
-      });
+      expect(mockedEnqueueRecupero).toHaveBeenCalledWith(
+        expect.objectContaining({
+          email: 'customer@example.com',
+          name: 'John',
+          orderId: '12345',
+          productId: 3740,
+          curso: 'Programa DE',
+        })
+      );
       // No es una compra: no toca Brevo/compradores.
       expect(mockedMarkAsPurchased).not.toHaveBeenCalled();
     });
@@ -213,6 +223,13 @@ describe('WooCommerce Webhook API', () => {
         'customer@example.com',
         '12345'
       );
+      // Mail paralelo de bienvenida (Nexo-mail) al billing email.
+      expect(mockedEnviarBienvenida).toHaveBeenCalledWith({
+        orderId: '12345',
+        email: 'customer@example.com',
+        nombre: 'John',
+        cursos: ['Product 1'],
+      });
     });
 
     it('handles Brevo failure gracefully', async () => {

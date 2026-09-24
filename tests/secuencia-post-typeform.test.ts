@@ -4,7 +4,7 @@
  *   - m1VariantForAge / parseArgDate / tierDePantalla
  *   - computeElegibles (exclusiones del enrolamiento)
  *   - estadoPausaSecuencia (skip por Estado del CRM)
- *   - buildSecuenciaMail (fallback de nombre + links ?m=sqN)
+ *   - buildSecuenciaMail (fallback de nombre + links ?mseq=sqN)
  */
 import {
   computeSequenceDates,
@@ -275,13 +275,13 @@ describe('buildSecuenciaMail', () => {
     expect(buildSecuenciaMail(0, '').text.startsWith('Hola,')).toBe(true);
   });
 
-  it('M0/M3/M5/M6/M7/M8 llevan su link ?m=sqN', () => {
-    expect(buildSecuenciaMail(0, 'x').text).toContain('/?m=sq0');
-    expect(buildSecuenciaMail(3, 'x').text).toContain('/?m=sq3');
-    expect(buildSecuenciaMail(5, 'x').text).toContain('/?m=sq5');
-    expect(buildSecuenciaMail(6, 'x').text).toContain('/?m=sq6');
-    expect(buildSecuenciaMail(7, 'x').text).toContain('/?m=sq7');
-    expect(buildSecuenciaMail(8, 'x').text).toContain('/?m=sq8');
+  it('M0/M3/M5/M6/M7/M8 llevan su link ?mseq=sqN', () => {
+    expect(buildSecuenciaMail(0, 'x').text).toContain('/?mseq=sq0');
+    expect(buildSecuenciaMail(3, 'x').text).toContain('/?mseq=sq3');
+    expect(buildSecuenciaMail(5, 'x').text).toContain('/?mseq=sq5');
+    expect(buildSecuenciaMail(6, 'x').text).toContain('/?mseq=sq6');
+    expect(buildSecuenciaMail(7, 'x').text).toContain('/?mseq=sq7');
+    expect(buildSecuenciaMail(8, 'x').text).toContain('/?mseq=sq8');
   });
 
   it('M1 tiene variantes A y B distintas', () => {
@@ -310,13 +310,19 @@ describe('buildRecuperoMail (T9)', () => {
     expect(buildRecuperoMail('Juan').text.startsWith('Hola Juan,')).toBe(true);
     expect(buildRecuperoMail('').text.startsWith('Hola,')).toBe(true);
   });
-  it('asunto exacto y link de carrito con ?m=rec1', () => {
+  it('R1: asunto, link por defecto al carrito con ?mseq=rec1 y PD de Mercado Pago', () => {
     const m = buildRecuperoMail('Juan');
-    expect(m.subject).toBe('se trabó tu inscripción');
-    expect(m.text).toContain('https://urologia.ar/carrito/?add-to-cart=3740&m=rec1');
+    expect(m.subject).toBe('todavía estás a tiempo');
+    expect(m.text).toContain('https://urologia.ar/carrito/?add-to-cart=3740&mseq=rec1');
+    expect(m.text).toContain('pagás en pesos por Mercado Pago, con cuotas');
+    expect(m.text).toContain('el programa Controla tu Mente, Recupera tu Erección');
   });
-  it('mantiene la PD de MercadoPago/cuotas', () => {
-    expect(buildRecuperoMail('x').text).toContain('MercadoPago y tenés cuotas');
+  it('R2: asunto propio, usa el link y el nombre del curso que le pasan (limpio)', () => {
+    const m = buildRecuperoMail('Ana', { paso: 2, curso: 'Controla tu mente,  Recupera tu erección\u200b', link: 'https://urologia.ar/finalizar-compra/order-pay/5/?pay_for_order=true&key=k&mseq=rec2' });
+    expect(m.subject).toBe('hoy es un gran día para empezar');
+    expect(m.text).toContain('order-pay/5/');
+    expect(m.text).toContain('empezar Controla tu mente, Recupera tu erección.');
+    expect(m.text).not.toContain('\u200b');
   });
 });
 

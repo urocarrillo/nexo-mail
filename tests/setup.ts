@@ -4,3 +4,4 @@ import '@testing-library/jest-dom';
 process.env.BREVO_API_KEY = 'test-api-key';
 process.env.API_SECRET_KEY = 'test-secret-key';
 process.env.WOOCOMMERCE_WEBHOOK_SECRET = 'test-woo-secret';
+process.env.DURARMAS_SHEET_ID = 'test-durarmas-sheet';

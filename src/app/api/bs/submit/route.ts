@@ -66,8 +66,9 @@ ${historyText}
 Devolvé SOLO el post final.`;
 
   const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-5',
     max_tokens: 1500,
+    thinking: { type: 'disabled' },
     system: LINKEDIN_SYSTEM_PROMPT,
     messages: [{ role: 'user', content: userPrompt }],
   });

@@ -11,7 +11,7 @@
  * puras (fechas, exclusiones, skip por Estado).
  *
  * Mails "caseros" de mauro@ (plain text, firma "Mauro", sin branding HTML).
- * Los links ya vienen con ?m=sq0..sq8 en el copy — se respetan tal cual.
+ * Los links ya vienen con ?mseq=sq0..sq8 en el copy — se respetan tal cual.
  */
 
 export const SECUENCIA_TAG = 'secuencia-post-typeform';
@@ -119,7 +119,7 @@ function mail0(name: string): SecuenciaMail {
       `${greeting(name)}\n\n` +
       `Vi tus respuestas del test. Hay un dato ahí que vale más que todo el resto: me contaste que en solitario tu erección funciona bien. Guardá ese dato — vamos a volver a él.\n\n` +
       `Te dejo el programa para que lo veas con calma:\n\n` +
-      `${LANDING}/?m=sq0\n\n` +
+      `${LANDING}/?mseq=sq0\n\n` +
       `Si te queda alguna pregunta, respondeme este mismo mail y lo conversamos.\n\n` +
       `Abrazo,\n` +
       `Mauro\n`,
@@ -175,7 +175,7 @@ function mail3(name: string): SecuenciaMail {
       `Entonces, ¿qué pasa cuando hay otra persona? Se prende un sistema distinto: el de alerta. Tu cabeza se pone a observar, a anticipar, a medir. Y la erección necesita exactamente lo contrario — presencia, no vigilancia.\n\n` +
       `Eso es lo que el programa entrena durante 8 semanas: bajar el sistema de alerta y volver a estar presente. La erección vuelve por añadidura, porque nunca se fue: la tuya funciona, ya lo sabés.\n\n` +
       `Cuando quieras verlo en detalle:\n\n` +
-      `${LANDING}/?m=sq3\n\n` +
+      `${LANDING}/?mseq=sq3\n\n` +
       `Abrazo,\n` +
       `Mauro\n`,
   };
@@ -203,7 +203,7 @@ function mail5(name: string): SecuenciaMail {
       `Te cuento cómo es el programa por dentro, así lo ves concreto:\n\n` +
       `8 semanas de trabajo, una por módulo. Videos y actividades de 15-30 minutos por día, a tu ritmo: nadie te corre, el acceso queda para vos. Herramientas descargables para cada semana. Y una consulta individual conmigo incluida, para revisar tu caso puntual cuando vos lo decidas.\n\n` +
       `Empezás hoy y en la primera semana ya estás trabajando con las primeras herramientas.\n\n` +
-      `${LANDING}/?m=sq5\n\n` +
+      `${LANDING}/?mseq=sq5\n\n` +
       `Cualquier pregunta, respondeme por acá.\n\n` +
       `Abrazo,\n` +
       `Mauro\n\n` +
@@ -219,7 +219,7 @@ function mail6(name: string): SecuenciaMail {
       `Domingo. Te escribo corto.\n\n` +
       `Los fines de semana van a seguir llegando, uno atrás de otro. La diferencia entre uno y el siguiente no la hace el calendario — la hace lo que vos entrenaste entre uno y otro.\n\n` +
       `Ocho semanas son dos meses de findes. Los que arrancaron hoy llegan distintos al noveno.\n\n` +
-      `${LANDING}/?m=sq6\n\n` +
+      `${LANDING}/?mseq=sq6\n\n` +
       `Abrazo,\n` +
       `Mauro\n`,
   };
@@ -233,7 +233,7 @@ function mail7(name: string): SecuenciaMail {
       `Te lo pongo simple, porque de esto estoy seguro.\n\n` +
       `El programa son 8 semanas para entrenar lo que hoy se te enciende en la cama: el sistema de alerta. Incluye los 8 módulos, las herramientas de cada semana y una consulta individual conmigo. Acceso inmediato, y queda para siempre.\n\n` +
       `Vos ya hiciste la parte más difícil: ponerle nombre a lo que te pasa. Tu propio test te lo mostró — en solitario funcionás bien, tu cuerpo está sano, lo que queda es entrenar la cabeza que te examina. Releé tus respuestas y contestate esta pregunta: ¿de verdad esto no es para vos?\n\n` +
-      `${LANDING}/?m=sq7\n\n` +
+      `${LANDING}/?mseq=sq7\n\n` +
       `Yo pongo el método y el seguimiento. Vos ponés el compromiso: 8 semanas.\n\n` +
       `Abrazo,\n` +
       `Mauro\n\n` +
@@ -249,7 +249,7 @@ function mail8(name: string): SecuenciaMail {
       `Ya te conté todo lo que tenía para contarte. Lo que sigue es tuyo — y así tiene que ser: esto funciona cuando el que decide sos vos.\n\n` +
       `Te dejo las dos puertas a mano.\n\n` +
       `Arrancar el programa hoy:\n` +
-      `${LANDING}/?m=sq8\n\n` +
+      `${LANDING}/?mseq=sq8\n\n` +
       `O verlo conmigo antes, en una consulta:\n` +
       `https://calendly.com/urologocarrillo\n\n` +
       `Y si el momento es otro, guardá este mail. El día que lo retomes, respondeme y seguimos desde acá.\n\n` +
@@ -258,23 +258,51 @@ function mail8(name: string): SecuenciaMail {
   };
 }
 
+/** Nombre del curso legible: colapsa espacios y saca caracteres invisibles del título de Woo. */
+function nombreCurso(curso?: string): string {
+  const c = (curso || '').replace(/[\u200b\u200c\u200d\ufeff]/g, '').replace(/\s+/g, ' ').trim();
+  return c || 'el programa Controla tu Mente, Recupera tu Erección';
+}
+
 /**
- * Recupero de carrito (T9) — mail único disparado por una orden cancelled/pending
- * del programa 3740 (redirect fallido de MercadoPago). Copy aprobado por Mauro,
- * plain text, firma "Mauro". El link lleva ?m=rec1 para atribución.
+ * Recupero de carrito (R1 a la hora, R2 a las 20 h). Plain text, firma "Mauro".
+ * Genérico para cualquier curso (usa el nombre del producto del pedido). Copy
+ * esperanzador y en positivo: "todavía estás a tiempo", la solución está a un
+ * paso sin decirlo. El link lleva al pago del mismo pedido si sigue pendiente
+ * o al carrito del curso si ya se canceló.
  */
-export function buildRecuperoMail(name: string): SecuenciaMail {
+export function buildRecuperoMail(
+  name: string,
+  opts: { paso?: 1 | 2; curso?: string; link?: string } = {}
+): SecuenciaMail {
   const n = (name || '').trim();
+  const curso = nombreCurso(opts.curso);
+  const paso = opts.paso === 2 ? 2 : 1;
+  const link = opts.link || `https://urologia.ar/carrito/?add-to-cart=3740&mseq=rec${paso}`;
+  if (paso === 2) {
+    return {
+      subject: 'hoy es un gran día para empezar',
+      text:
+        `${greeting(n)}\n\n` +
+        `Todavía estás a tiempo de empezar ${curso}. Lo que cargaste ayer sigue guardado hasta esta noche; después lo podés retomar desde la página del curso.\n\n` +
+        `Es el momento: entrás, elegís cómo pagar y arrancás hoy mismo:\n${link}\n\n` +
+        `Lo que viniste a resolver ya tiene un camino armado, paso a paso. El primer módulo te espera.\n\n` +
+        `Cualquier duda, respondeme este mail. Estoy del otro lado.\n\n` +
+        `Abrazo,\n` +
+        `Mauro\n`,
+    };
+  }
   return {
-    subject: 'se trabó tu inscripción',
+    subject: 'todavía estás a tiempo',
     text:
       `${greeting(n)}\n\n` +
-      `Vi que empezaste la inscripción al programa Controla tu Mente, Recupera tu Erección y el pago no llegó a completarse. Pasa seguido con el redirect de MercadoPago, así que quería asegurarme de que no te quedaras afuera por un tema técnico.\n\n` +
-      `Si querés retomarla: https://urologia.ar/carrito/?add-to-cart=3740&m=rec1\n\n` +
-      `Si fue el medio de pago, respondeme y lo resolvemos por otro lado. Y si te apareció una duda antes de confirmar, contame y la vemos.\n\n` +
+      `Vi que empezaste tu inscripción a ${curso} y el pago quedó a mitad de camino. Pasa seguido al saltar a la plataforma de pago, y tiene arreglo fácil.\n\n` +
+      `Todavía estás a tiempo, y es un gran momento para empezar: lo que dejaste cargado sigue ahí, esperándote, y en un minuto lo tenés resuelto:\n${link}\n\n` +
+      `Cuanto antes empieces, antes vas a notar el cambio. Hoy puede ser ese día.\n\n` +
+      `Si te trabó el medio de pago o te quedó una duda, respondeme este mail y lo resolvemos juntos.\n\n` +
       `Abrazo,\n` +
       `Mauro\n\n` +
-      `PD: desde Argentina pagás en pesos por MercadoPago y tenés cuotas.\n`,
+      `PD: desde Argentina pagás en pesos por Mercado Pago, con cuotas.\n`,
   };
 }
 

@@ -1,121 +1,100 @@
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  type WcOrder,
+  type ResultadoPedido,
+  getOrder,
+  listarPedidos,
+  esPedidoMp,
+  edadMinutos,
+  resolverPedido,
+  enviarAvisoInterno,
+  cerrarCasoAccesoPorPedido,
+  nombreCliente,
+  nombresCursos,
+  linkPedidoAdmin,
+} from '@/lib/mp-pedidos';
 
 /**
  * Cron de reconciliación Mercado Pago ↔ WooCommerce.
  *
  * Problema que resuelve: la cola interna de notificaciones de MP a veces demora
  * o nunca entrega el aviso de pago aprobado, y el pedido queda en "pendiente"
- * sin mail, sin curso y sin Brevo (casos reales: #5501 y #5505, 24/08/2026).
+ * sin mail, sin curso y sin Brevo (casos reales: #5501, #5505, #5578).
  *
- * Qué hace cada corrida (cada 10 min via Vercel Cron):
- *  1. Busca pedidos WooCommerce en estado "pending" pagados con Mercado Pago,
- *     con más de 10 minutos y menos de 72 h de antigüedad.
- *  2. Para cada uno consulta el pago directo en la API de MP (por payment ID
- *     guardado en el pedido, o por external_reference "Curso-{id}").
- *  3. Si el pago está APROBADO → completa el pedido (dispara mail al cliente,
- *     enrolamiento LearnDash y Brevo por los hooks normales) y avisa por mail.
- *  4. Si el pago está EN MEDIACIÓN → NO toca el pedido, solo avisa por mail.
+ * Qué hace cada corrida (Hostinger cada 10 min + Vercel diario de respaldo):
+ *  1. Busca pedidos WooCommerce "pending" u "on-hold" pagados con Mercado Pago,
+ *     con más de 2 minutos y menos de 72 h de antigüedad (edad por
+ *     date_created_gmt: date_created viene en hora del sitio, UTC-3).
+ *  2. Para cada uno resuelve el pago contra la API de MP (lib mp-pedidos).
+ *  3. Pago APROBADO y sin mediación → completa el pedido (mail al cliente,
+ *     LearnDash y Brevo por los hooks normales), avisa por mail y, si había un
+ *     caso "No puedo acceder" abierto, le manda al alumno "Listo, tu curso ya
+ *     está activo" y lo marca resuelto.
+ *  4. Pago EN MEDIACIÓN → NO toca el pedido, solo avisa por mail.
  *  5. Cualquier otro estado (pending/rejected/cancelled) → no hace nada.
  *
  * Auth: CRON_SECRET (header Authorization: Bearer …), igual que los otros crons.
  * Params: ?dry=1 solo reporta sin cambiar nada · ?test_email=1 manda un mail de
- * prueba del canal de aviso y termina.
+ * prueba del canal de aviso y termina · ?order=ID procesa ese pedido puntual
+ * saltando la ventana de edad (y no encadena vigilante/postconsulta/drip).
  */
 
-const WC_BASE = 'https://urologia.ar/wp-json/wc/v3';
-const MP_BASE = 'https://api.mercadopago.com';
-const ALERT_EMAIL = process.env.APPROVAL_EMAIL || '';
-const MIN_EDAD_MIN = 10;
+const MIN_EDAD_MIN = 2;
 const MAX_EDAD_HORAS = 72;
+const ORIGEN = 'cron reconciliar-mp';
 
-interface WcOrder {
-  id: number;
-  status: string;
-  date_created: string;
-  payment_method: string;
-  total: string;
-  currency: string;
-  billing: { first_name?: string; last_name?: string; email?: string };
-  line_items: { name: string }[];
-  meta_data?: { key: string; value: unknown }[];
+interface Resultado {
+  completados: number[];
+  en_mediacion: number[];
+  sin_pago_aprobado: number[];
+  errores: number[];
+  casos_cerrados: string[];
 }
 
-interface MpPayment {
-  id: number;
-  status: string;
-  status_detail?: string;
-  external_reference?: string;
-  transaction_amount?: number;
-  currency_id?: string;
-  date_approved?: string | null;
-}
+async function procesarPedido(order: WcOrder, dry: boolean, resultado: Resultado): Promise<ResultadoPedido | null> {
+  const cliente = nombreCliente(order);
+  const producto = nombresCursos(order).join(', ');
+  const emailCliente = order.billing.email || 's/email';
 
-function wcAuth(): string {
-  const user = process.env.WP_USER || '';
-  const pass = process.env.WP_APP_PASSWORD || '';
-  return `Basic ${Buffer.from(`${user}:${pass}`).toString('base64')}`;
-}
-
-async function wcFetch(endpoint: string, options: RequestInit = {}): Promise<Response> {
-  return fetch(`${WC_BASE}${endpoint}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: wcAuth(),
-      ...options.headers,
-    },
-  });
-}
-
-async function mpFetch(endpoint: string): Promise<Response> {
-  return fetch(`${MP_BASE}${endpoint}`, {
-    headers: { Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN || ''}` },
-  });
-}
-
-/** Busca los pagos MP de un pedido: primero por payment ID guardado, si no por external_reference. */
-async function pagosDelPedido(order: WcOrder): Promise<MpPayment[]> {
-  const idsMeta = order.meta_data?.find((m) => m.key === '_Mercado_Pago_Payment_IDs');
-  const ids = String(idsMeta?.value || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => /^\d+$/.test(s));
-
-  if (ids.length > 0) {
-    const pagos: MpPayment[] = [];
-    for (const id of ids) {
-      const res = await mpFetch(`/v1/payments/${id}`);
-      if (res.ok) pagos.push((await res.json()) as MpPayment);
-    }
-    if (pagos.length > 0) return pagos;
+  let r: ResultadoPedido;
+  try {
+    r = await resolverPedido(order, { dry, origen: ORIGEN });
+  } catch (err) {
+    resultado.errores.push(order.id);
+    await enviarAvisoInterno(
+      `Fallo al completar pedido #${order.id} (pago MP aprobado)`,
+      `El cron de reconciliación detectó un pago aprobado para el pedido #${order.id} (${cliente}, ${order.total} ${order.currency}) pero WooCommerce devolvió error al completarlo: ${err instanceof Error ? err.message : String(err)}. Revisar a mano: ${linkPedidoAdmin(order.id)}`
+    );
+    return null;
   }
 
-  const res = await mpFetch(
-    `/v1/payments/search?external_reference=${encodeURIComponent(`Curso-${order.id}`)}&sort=date_created&criteria=desc`
-  );
-  if (!res.ok) return [];
-  const data = (await res.json()) as { results?: MpPayment[] };
-  return data.results || [];
-}
-
-async function enviarAviso(subject: string, text: string): Promise<boolean> {
-  const apiKey = process.env.BREVO_API_KEY;
-  if (!apiKey || !ALERT_EMAIL) return false;
-  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
-    method: 'POST',
-    headers: {
-      accept: 'application/json',
-      'content-type': 'application/json',
-      'api-key': apiKey,
-    },
-    body: JSON.stringify({
-      sender: { email: 'info@urologia.ar', name: 'Nexo-mail · Pagos' },
-      to: [{ email: ALERT_EMAIL }],
-      subject,
-      textContent: text,
-    }),
-  });
-  return res.status === 201;
+  if (r.accion === 'completado') {
+    resultado.completados.push(order.id);
+    if (!dry && r.pago) {
+      const aprobados = r.pagos.filter((p) => p.status === 'approved');
+      const doble =
+        aprobados.length > 1
+          ? `\n\nATENCIÓN: hay ${aprobados.length} pagos aprobados para este pedido (${aprobados.map((p) => p.id).join(', ')}): posible cobro doble, revisar devolución en Mercado Pago.`
+          : '';
+      await enviarAvisoInterno(
+        `Pedido #${order.id} completado automáticamente (pago MP aprobado)`,
+        `El cron de reconciliación rescató un pedido trabado:\n\nPedido: #${order.id}\nCliente: ${cliente} (${emailCliente})\nProducto: ${producto}\nMonto: ${order.total} ${order.currency}\nPago MP: ${r.pago.id} (aprobado ${r.pago.date_approved || 's/f'})\n\nLa notificación de Mercado Pago no había llegado a la tienda; el pedido fue completado y se dispararon el mail al cliente, el acceso al curso y Brevo.${doble}\n\nVer pedido: ${linkPedidoAdmin(order.id)}\n\n— Nexo-mail`
+      );
+      const caso = await cerrarCasoAccesoPorPedido(r.order, { origen: ORIGEN });
+      if (caso.cerrado && caso.casoId) resultado.casos_cerrados.push(caso.casoId);
+    }
+  } else if (r.accion === 'en_mediacion') {
+    resultado.en_mediacion.push(order.id);
+    if (!dry && r.pago) {
+      await enviarAvisoInterno(
+        `Pedido #${order.id}: pago de MP en mediación (no se tocó)`,
+        `El cron de reconciliación encontró el pedido #${order.id} ${order.status} con su pago de Mercado Pago EN MEDIACIÓN (reclamo del comprador).\n\nCliente: ${cliente} (${emailCliente})\nProducto: ${producto}\nMonto: ${order.total} ${order.currency}\nPago MP: ${r.pago.id}\n\nNo se modificó nada: resolvé el reclamo desde el panel de Mercado Pago.\n\n— Nexo-mail`
+      );
+    }
+  } else if (r.accion !== 'ya_completado') {
+    resultado.sin_pago_aprobado.push(order.id);
+  }
+  return r;
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -129,80 +108,68 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const dry = params.get('dry') === '1';
 
   if (params.get('test_email') === '1') {
-    const ok = await enviarAviso(
+    const ok = await enviarAvisoInterno(
       'Prueba: aviso de reconciliación MP',
       'Este es un mail de prueba del cron de reconciliación Mercado Pago ↔ WooCommerce.\n\nSi lo estás leyendo, el canal de aviso funciona: cuando el cron rescate un pedido trabado vas a recibir un mail como este con los datos de la venta.\n\n— Nexo-mail'
     );
-    return NextResponse.json({ test_email: ok ? 'enviado' : 'fallo (revisar BREVO_API_KEY / APPROVAL_EMAIL)' });
+    return NextResponse.json({ test_email: ok ? 'enviado' : 'fallo (revisar BREVO_API_KEY)' });
   }
 
   if (!process.env.MP_ACCESS_TOKEN) {
     return NextResponse.json({ error: 'Falta MP_ACCESS_TOKEN' }, { status: 500 });
   }
 
+  const resultado: Resultado = {
+    completados: [],
+    en_mediacion: [],
+    sin_pago_aprobado: [],
+    errores: [],
+    casos_cerrados: [],
+  };
+
   try {
-    const res = await wcFetch('/orders?status=pending&per_page=30&orderby=date&order=desc');
-    if (!res.ok) {
-      return NextResponse.json({ error: `Woo orders ${res.status}` }, { status: 502 });
+    // Pedido puntual (?order=ID): sin ventana de edad, sin encadenar otros crons.
+    const orderParam = params.get('order');
+    if (orderParam) {
+      const id = parseInt(orderParam, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        return NextResponse.json({ error: 'order inválido' }, { status: 400 });
+      }
+      const order = await getOrder(id);
+      if (!order) return NextResponse.json({ error: `Pedido #${id} no existe` }, { status: 404 });
+      if (!esPedidoMp(order)) {
+        return NextResponse.json({
+          dry,
+          pedido: id,
+          estado: order.status,
+          accion: 'revisar_manual',
+          motivo: `gateway ${order.payment_method} (no Mercado Pago)`,
+        });
+      }
+      const r = await procesarPedido(order, dry, resultado);
+      return NextResponse.json({
+        dry,
+        pedido: id,
+        estado: r?.order.status ?? order.status,
+        accion: r?.accion ?? 'error',
+        pago_id: r?.pago?.id ?? null,
+        pago_status: r?.pago?.status ?? null,
+        motivo: r?.motivo,
+        ...resultado,
+      });
     }
-    const pendientes = (await res.json()) as WcOrder[];
+
+    const pendientes = await listarPedidos({ status: ['pending', 'on-hold'], perPage: 30 });
 
     const ahora = Date.now();
     const candidatos = pendientes.filter((o) => {
-      if (!o.payment_method.startsWith('woo-mercado-pago')) return false;
-      const edadMin = (ahora - new Date(o.date_created).getTime()) / 60000;
+      if (!esPedidoMp(o)) return false;
+      const edadMin = edadMinutos(o, ahora);
       return edadMin >= MIN_EDAD_MIN && edadMin <= MAX_EDAD_HORAS * 60;
     });
 
-    const resultado: {
-      completados: number[];
-      en_mediacion: number[];
-      sin_pago_aprobado: number[];
-    } = { completados: [], en_mediacion: [], sin_pago_aprobado: [] };
-
     for (const order of candidatos) {
-      const pagos = await pagosDelPedido(order);
-      const aprobado = pagos.find((p) => p.status === 'approved');
-      const enMediacion = pagos.find((p) => p.status === 'in_mediation');
-      const cliente = `${order.billing.first_name || ''} ${order.billing.last_name || ''}`.trim();
-      const producto = order.line_items.map((li) => li.name).join(', ');
-
-      if (aprobado) {
-        if (!dry) {
-          const upd = await wcFetch(`/orders/${order.id}`, {
-            method: 'PUT',
-            body: JSON.stringify({ status: 'completed', transaction_id: String(aprobado.id) }),
-          });
-          if (!upd.ok) {
-            await enviarAviso(
-              `Fallo al completar pedido #${order.id} (pago MP aprobado)`,
-              `El cron de reconciliación detectó el pago aprobado ${aprobado.id} para el pedido #${order.id} (${cliente}, ${order.total} ${order.currency}) pero WooCommerce devolvió error ${upd.status} al completarlo. Revisar a mano: https://urologia.ar/wp-admin/post.php?post=${order.id}&action=edit`
-            );
-            continue;
-          }
-          await wcFetch(`/orders/${order.id}/notes`, {
-            method: 'POST',
-            body: JSON.stringify({
-              note: `Completado automáticamente por Nexo-mail: pago Mercado Pago ${aprobado.id} aprobado (${aprobado.date_approved || 's/f'}) pero la notificación de MP no había impactado en la tienda.`,
-            }),
-          });
-          await enviarAviso(
-            `Pedido #${order.id} completado automáticamente (pago MP aprobado)`,
-            `El cron de reconciliación rescató un pedido trabado:\n\nPedido: #${order.id}\nCliente: ${cliente} (${order.billing.email || 's/email'})\nProducto: ${producto}\nMonto: ${order.total} ${order.currency}\nPago MP: ${aprobado.id} (aprobado ${aprobado.date_approved || 's/f'})\n\nLa notificación de Mercado Pago no había llegado a la tienda; el pedido fue completado y se dispararon el mail al cliente, el acceso al curso y Brevo.\n\nVer pedido: https://urologia.ar/wp-admin/post.php?post=${order.id}&action=edit\n\n— Nexo-mail`
-          );
-        }
-        resultado.completados.push(order.id);
-      } else if (enMediacion) {
-        if (!dry) {
-          await enviarAviso(
-            `Pedido #${order.id}: pago de MP en mediación (no se tocó)`,
-            `El cron de reconciliación encontró el pedido #${order.id} pendiente con su pago de Mercado Pago EN MEDIACIÓN (reclamo del comprador).\n\nCliente: ${cliente} (${order.billing.email || 's/email'})\nProducto: ${producto}\nMonto: ${order.total} ${order.currency}\nPago MP: ${enMediacion.id}\n\nNo se modificó nada: resolvé el reclamo desde el panel de Mercado Pago.\n\n— Nexo-mail`
-          );
-        }
-        resultado.en_mediacion.push(order.id);
-      } else {
-        resultado.sin_pago_aprobado.push(order.id);
-      }
+      await procesarPedido(order, dry, resultado);
     }
 
     // Encadena el vigilante post-test: Hostinger dispara este cron cada 10 min y

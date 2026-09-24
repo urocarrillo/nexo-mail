@@ -32,6 +32,7 @@ export interface WebhookResponse {
 }
 
 export interface WooCommerceOrder {
+  order_key?: string; // para el link 'pagar pedido' del recupero de carrito
   id: number;
   status: string;
   billing: {

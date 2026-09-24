@@ -5,6 +5,9 @@ import { markLeadAsPurchased } from '@/lib/storage';
 import { WooCommerceOrder, WebhookResponse } from '@/lib/types';
 import { getAffiliate, logSale } from '@/lib/sheets-affiliates';
 import { logSesion } from '@/lib/sheets-sesiones';
+import { markClienteDurarMas } from '@/lib/sheets-durar-mas';
+import { markClienteFirmeSeguro } from '@/lib/sheets-firme-seguro';
+import { markClienteCombo } from '@/lib/sheets-combo';
 import { sendAffiliateSaleNotification } from '@/lib/email-affiliate';
 import { markClienteInCRM } from '@/lib/crm-sheet';
 import { cancelDripForEmail, enqueueRecupero } from '@/lib/email-drip';
@@ -15,9 +18,15 @@ import {
   type ClienteInfo,
   type EstadoCliente,
 } from '@/lib/clientes';
+import { enviarBienvenida, cerrarCasoAccesoPorPedido } from '@/lib/mp-pedidos';
 import { kv } from '@vercel/kv';
 
 const PROGRAMA_DE_PRODUCT_ID = 3740;
+const CURSO_EP_PRODUCT_ID = 3208;
+const CURSO_PRESERVATIVO_PRODUCT_ID = 1043;
+const COMBO_EI_PRODUCT_ID = 5243; // Combo Experto en Intimidad (programa + curso EP + consulta)
+// Productos-curso con recupero de carrito (programa, EP, preservativo, combo, otros cursos).
+const CURSO_PRODUCT_IDS = new Set([3740, 3208, 1043, 5243, 954, 2871]);
 
 function verifyWooCommerceSignature(
   payload: string,
@@ -76,6 +85,7 @@ function parseOrder(data: unknown): WooCommerceOrder | null {
       phone: billing.phone as string | undefined,
     },
     line_items: (order.line_items as WooCommerceOrder['line_items']) || [],
+    order_key: typeof order.order_key === 'string' ? order.order_key : undefined,
     meta_data: (order.meta_data as WooCommerceOrder['meta_data']) || [],
     total: (order.total as string) || '0',
     currency: (order.currency as string) || 'USD',
@@ -141,20 +151,21 @@ export async function POST(request: NextRequest): Promise<NextResponse<WebhookRe
 
   const email = order.billing.email.toLowerCase().trim();
 
-  // Recupero de carrito (T9): ~40% de las órdenes del 3740 se cancela en el
-  // redirect de MercadoPago y nadie las recontacta. Ante una orden cancelled/
-  // pending del programa encolamos un mail de recupero (+2 h). El dedupe por
-  // email (30 d), el skip-si-cliente y el re-chequeo antes de enviar viven en
-  // enqueueRecupero / el motor drip. Va antes del filtro "sólo completed".
-  if (
-    (order.status === 'cancelled' || order.status === 'pending') &&
-    order.line_items.some((item) => item.product_id === PROGRAMA_DE_PRODUCT_ID)
-  ) {
+  // Recupero de carrito (T9 v2): ~40% de las órdenes con MP se cancela en el
+  // redirect y nadie las recontacta. Ante una orden cancelled/pending de un
+  // curso encolamos R1 (+1 h, link de pago del pedido) y R2 (+20 h). El dedupe
+  // por email (30 d), el skip-si-cliente y el re-chequeo (cliente, blacklist,
+  // pedido ya pagado) viven en enqueueRecupero / el motor drip.
+  const itemCurso = order.line_items.find((item) => CURSO_PRODUCT_IDS.has(item.product_id));
+  if ((order.status === 'cancelled' || order.status === 'pending') && itemCurso) {
     try {
       const r = await enqueueRecupero({
         email,
         name: order.billing.first_name?.trim() || undefined,
         orderId: order.id.toString(),
+        orderKey: order.order_key,
+        productId: itemCurso.product_id,
+        curso: itemCurso.name,
       });
       return NextResponse.json({
         success: true,
@@ -198,8 +209,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<WebhookRe
     const productIds = order.line_items.map(item => item.product_id);
 
     // Estado de cliente derivado de esta orden (filtro-cliente / T8).
+    // El combo 5243 incluye el programa → cuenta como cliente-programa.
     const clienteInfo: ClienteInfo = {
-      estado: (productIds.includes(PROGRAMA_DE_PRODUCT_ID)
+      estado: (productIds.includes(PROGRAMA_DE_PRODUCT_ID) || productIds.includes(COMBO_EI_PRODUCT_ID)
         ? 'cliente-programa'
         : 'cliente-otro') as EstadoCliente,
       productos: productIds,
@@ -240,14 +252,86 @@ export async function POST(request: NextRequest): Promise<NextResponse<WebhookRe
     // Invalidar la cache del mapa de clientes para que la compra se refleje ya.
     await invalidateClientesCache();
 
-    // If buyer purchased Programa DE → log to Sesiones 1-1 sheet
-    if (productIds.includes(PROGRAMA_DE_PRODUCT_ID)) {
+    // Mail paralelo de bienvenida ("Cómo entrar a tu curso") desde mauro@, una
+    // vez por pedido (KV bienvenida:{orderId}). Best-effort: si Brevo falla se
+    // loguea y se sigue; la marca se libera para reintentar en otra entrega.
+    try {
+      const bienvenida = await enviarBienvenida({
+        orderId,
+        email,
+        nombre: order.billing.first_name?.trim() || undefined,
+        cursos: order.line_items.map((item) => item.name).filter(Boolean),
+      });
+      console.log(`Bienvenida #${orderId}: ${bienvenida.enviado ? 'enviada' : `no enviada (${bienvenida.motivo})`}`);
+    } catch (bienErr) {
+      console.error('Bienvenida error (non-blocking):', bienErr);
+    }
+
+    // Si había un caso "No puedo acceder" abierto para este pedido (la
+    // notificación de MP llegó después del formulario), cerrarlo: mail "Listo,
+    // tu curso ya está activo" + aviso. Con claim en KV, no duplica al cron.
+    try {
+      const caso = await cerrarCasoAccesoPorPedido(
+        { id: order.id, billing: order.billing, line_items: order.line_items },
+        { origen: 'webhook woocommerce' }
+      );
+      if (caso.cerrado) console.log(`Caso de acceso ${caso.casoId} cerrado por webhook (#${orderId})`);
+    } catch (casoErr) {
+      console.error('Cierre de caso de acceso error (non-blocking):', casoErr);
+    }
+
+    // If buyer purchased Programa DE (o el combo, que incluye la consulta 1-1)
+    // → log to Sesiones 1-1 sheet
+    if (productIds.includes(PROGRAMA_DE_PRODUCT_ID) || productIds.includes(COMBO_EI_PRODUCT_ID)) {
       try {
         const nombre = `${order.billing.first_name} ${order.billing.last_name}`.trim();
         const fechaCompra = new Date(order.date_created).toLocaleDateString('es-AR');
         await logSesion({ nombre, email, fechaCompra });
       } catch (sesErr) {
         console.error('Sesiones sheet logging error (non-blocking):', sesErr);
+      }
+    }
+
+    // Si compró el curso EP (3208) o el combo (5243, que lo incluye) → marcar
+    // Cliente en el Sheet de leads durar-mas (best-effort; nunca lanza).
+    if (productIds.includes(CURSO_EP_PRODUCT_ID) || productIds.includes(COMBO_EI_PRODUCT_ID)) {
+      try {
+        const fechaEP = new Date(order.date_created).toLocaleDateString('es-AR');
+        const textoEP = productIds.includes(COMBO_EI_PRODUCT_ID) ? `combo EI ${fechaEP}` : `curso EP ${fechaEP}`;
+        await markClienteDurarMas(email, textoEP);
+      } catch (dmErr) {
+        console.error('Durar-mas sheet marking error (non-blocking):', dmErr);
+      }
+    }
+
+    // Si compró el combo (5243), el programa (3740) o el curso EP (3208) →
+    // marcar Cliente en el Sheet de leads del combo (best-effort; nunca lanza).
+    if (
+      productIds.includes(COMBO_EI_PRODUCT_ID) ||
+      productIds.includes(PROGRAMA_DE_PRODUCT_ID) ||
+      productIds.includes(CURSO_EP_PRODUCT_ID)
+    ) {
+      try {
+        const fechaEI = new Date(order.date_created).toLocaleDateString('es-AR');
+        const textoEI = productIds.includes(COMBO_EI_PRODUCT_ID)
+          ? `combo Experto en Intimidad ${fechaEI}`
+          : productIds.includes(PROGRAMA_DE_PRODUCT_ID)
+            ? `programa DE ${fechaEI}`
+            : `curso EP ${fechaEI}`;
+        await markClienteCombo(email, textoEI);
+      } catch (eiErr) {
+        console.error('Combo sheet marking error (non-blocking):', eiErr);
+      }
+    }
+
+    // Si compró el curso Erección con Preservativo (1043) → marcar Cliente en
+    // el Sheet de leads firme-y-seguro (best-effort; nunca lanza).
+    if (productIds.includes(CURSO_PRESERVATIVO_PRODUCT_ID)) {
+      try {
+        const fechaFS = new Date(order.date_created).toLocaleDateString('es-AR');
+        await markClienteFirmeSeguro(email, `curso preservativo ${fechaFS}`);
+      } catch (fsErr) {
+        console.error('Firme-seguro sheet marking error (non-blocking):', fsErr);
       }
     }
 

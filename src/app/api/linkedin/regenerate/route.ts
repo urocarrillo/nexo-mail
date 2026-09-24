@@ -211,8 +211,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // 2. Regenerate with Claude
     const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-5',
       max_tokens: 1500,
+      thinking: { type: 'disabled' },
       system: LINKEDIN_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: `${tonePrompt}\n\nPost original:\n\n${content}\n\nCorré el checklist auto-review mentalmente y devolvé SOLO el post nuevo.` }],
     });

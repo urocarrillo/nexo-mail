@@ -117,6 +117,11 @@ interface ScheduledEmail {
   rescateVariante?: string; // rescate-a: valor de la columna Variante del CRM (PD de R3)
   rescateRowIndex?: number; // rescate-a: fila del CRM evaluada al enrolar (Estado + marca)
   attempts?: number; // rescate-a: intentos de envío (reintento de 'failed' hasta RESCATE_MAX_ATTEMPTS)
+  // ── Recupero de carrito (R1/R2) ──
+  orderId?: string;
+  orderKey?: string; // link "pagar pedido" mientras el pedido siga pendiente
+  productId?: number; // producto-curso del pedido (link add-to-cart si ya se canceló)
+  curso?: string; // nombre del curso para el copy
 }
 
 const DRIP_QUEUE_KEY = 'drip:queue';
@@ -124,8 +129,39 @@ const DRIP_SENT_KEY = 'drip:sent';
 
 // ─── Recupero de carrito (T9) ───────────────────────────────────────
 export const RECUPERO_TAG = 'recupero-carrito';
-// Delay del mail de recupero desde que llega la orden cancelled/pending.
-const RECUPERO_DELAY_MS = 2 * 60 * 60 * 1000; // +2 h
+// Dos mails: R1 a la hora y R2 a las 20 h. WooCommerce ("Mantener stock" = 1440)
+// cancela el pedido pendiente a las 24 h, así el link "pagar pedido" sigue vivo en los dos.
+const RECUPERO_DELAYS_MS: Record<1 | 2, number> = { 1: 60 * 60 * 1000, 2: 20 * 60 * 60 * 1000 };
+const PEDIDO_PAGADO = new Set(['processing', 'completed']);
+const PEDIDO_PAGABLE = new Set(['pending', 'on-hold', 'failed']);
+
+/** Lectura mínima del pedido en WooCommerce (status + order_key). null si falla o sin credenciales. */
+async function estadoPedidoLite(orderId: string): Promise<{ status: string; order_key?: string } | null> {
+  const user = process.env.WP_USER || '';
+  const pass = process.env.WP_APP_PASSWORD || '';
+  if (!user || !pass) return null;
+  try {
+    const res = await fetch(`https://urologia.ar/wp-json/wc/v3/orders/${encodeURIComponent(orderId)}`, {
+      headers: { Authorization: `Basic ${Buffer.from(`${user}:${pass}`).toString('base64')}` },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!res.ok) return null;
+    const o = (await res.json()) as { status?: string; order_key?: string };
+    return o.status ? { status: o.status, order_key: o.order_key } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Link del mail: "pagar pedido" del mismo pedido si sigue pendiente; si no, carrito con el curso. */
+function linkRecupero(entry: ScheduledEmail, pedido: { status: string; order_key?: string } | null): string {
+  const paso = entry.seqStep === 2 ? 2 : 1;
+  const key = pedido?.order_key || entry.orderKey;
+  if (pedido && PEDIDO_PAGABLE.has(pedido.status) && entry.orderId && key) {
+    return `https://urologia.ar/finalizar-compra/order-pay/${entry.orderId}/?pay_for_order=true&key=${encodeURIComponent(key)}&mseq=rec${paso}`;
+  }
+  return `https://urologia.ar/carrito/?add-to-cart=${entry.productId || 3740}&mseq=rec${paso}`;
+}
 // Dedupe por email: máximo 1 recupero cada 30 días.
 const RECUPERO_DEDUPE_PREFIX = 'recupero-dedupe:';
 const RECUPERO_DEDUPE_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 días
@@ -1599,6 +1635,9 @@ export async function enqueueRecupero(params: {
   email: string;
   name?: string;
   orderId: string;
+  orderKey?: string;
+  productId?: number;
+  curso?: string;
 }): Promise<{ enqueued: boolean; reason?: 'cliente' | 'dedupe' | 'excluido-1a1' | 'error' }> {
   const email = (params.email || '').trim().toLowerCase();
   if (!email) return { enqueued: false, reason: 'error' };
@@ -1638,24 +1677,32 @@ export async function enqueueRecupero(params: {
   }
 
   const now = new Date();
-  const sendAt = new Date(now.getTime() + RECUPERO_DELAY_MS);
-  const mail = buildRecuperoMail(params.name || '');
-  const entry: ScheduledEmail = {
-    id: `rec_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+  const base = {
     email,
     name: params.name,
     tag: RECUPERO_TAG,
-    stepIndex: 0,
     templateId: 0,
-    subject: mail.subject,
-    sendAt: sendAt.toISOString(),
-    status: 'pending',
+    status: 'pending' as const,
     createdAt: now.toISOString(),
-    kind: 'recupero',
+    kind: 'recupero' as const,
+    orderId: params.orderId,
+    orderKey: params.orderKey,
+    productId: params.productId,
+    curso: params.curso,
   };
+  const entries: ScheduledEmail[] = ([1, 2] as const).map((paso) => ({
+    ...base,
+    id: `rec${paso}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    stepIndex: paso - 1,
+    seqStep: paso,
+    subject: buildRecuperoMail(params.name || '', { paso, curso: params.curso }).subject,
+    sendAt: new Date(now.getTime() + RECUPERO_DELAYS_MS[paso]).toISOString(),
+  }));
 
   try {
-    await kv.hset(DRIP_QUEUE_KEY, { [entry.id]: JSON.stringify(entry) });
+    const payload: Record<string, string> = {};
+    for (const e of entries) payload[e.id] = JSON.stringify(e);
+    await kv.hset(DRIP_QUEUE_KEY, payload);
   } catch (err) {
     // Rollback del dedupe para permitir un reintento posterior.
     try {
@@ -1665,7 +1712,7 @@ export async function enqueueRecupero(params: {
     return { enqueued: false, reason: 'error' };
   }
 
-  console.log(`Recupero encolado: ${email} (orden ${params.orderId}) sendAt ${sendAt.toISOString()}`);
+  console.log(`Recupero encolado: ${email} (orden ${params.orderId}) R1 ${entries[0].sendAt} · R2 ${entries[1].sendAt}`);
   return { enqueued: true };
 }
 
@@ -1725,8 +1772,16 @@ async function processRecuperoDue(
       continue;
     }
 
+    // ── Estado real del pedido (fail-open: sin dato → link al carrito) ──
+    const pedido = entry.orderId ? await estadoPedidoLite(entry.orderId) : null;
+    if (pedido && PEDIDO_PAGADO.has(pedido.status)) {
+      await cancel(id, entry, 'pagado');
+      continue;
+    }
+    const paso: 1 | 2 = entry.seqStep === 2 ? 2 : 1;
+
     res.processed++;
-    const mail = buildRecuperoMail(entry.name || '');
+    const mail = buildRecuperoMail(entry.name || '', { paso, curso: entry.curso, link: linkRecupero(entry, pedido) });
     const result = await sendPlainSecuencia(email, entry.name, mail.subject, mail.text);
     if (result.success) {
       res.sent++;

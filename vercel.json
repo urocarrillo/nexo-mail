@@ -109,6 +109,12 @@
     },
     "src/app/api/webhook/calendly/route.ts": {
       "maxDuration": 30
+    },
+    "src/app/api/form/no-puedo-acceder/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/pago/verificar/route.ts": {
+      "maxDuration": 30
     }
   },
   "crons": [

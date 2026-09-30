@@ -23,10 +23,13 @@ import {
 } from './secuencia-post-typeform';
 import {
   buildDurarMasMail,
+  DURARMAS_OFFSETS_DIAS,
+  DURARMAS_SEQ_VERSION,
+  estadoCortaDurarMas,
   DURARMAS_SENDER_SECUENCIA,
   DURARMAS_TAG,
 } from './secuencia-durar-mas';
-import { markSecuenciaDurarMas } from './sheets-durar-mas';
+import { markSecuenciaDurarMas, readEstadosDurarMas } from './sheets-durar-mas';
 import {
   buildFirmeSeguroMail,
   FIRMESEGURO_SENDER_SECUENCIA,
@@ -113,7 +116,8 @@ interface ScheduledEmail {
   error?: string;
   // ── Secuencias inline (mails plain sin template de Brevo) ──
   kind?: 'template' | 'secuencia' | 'recupero' | 'durar-mas' | 'firme-seguro' | 'combo' | 'rescate-a'; // undefined = 'template' (retrocompat)
-  seqStep?: number; // secuencia: 1..8 (M1..M8) · durar-mas: 1..6 (dm1..dm6) · firme-seguro: 1..5 (fs1..fs5) · combo: 1..5 (ei1..ei5) · rescate-a: 2..4 (R2..R4)
+  seqStep?: number; // secuencia: 1..8 (M1..M8) · durar-mas: 1..2 (ep1, ep2; legado 1..6 dm1..dm6) · firme-seguro: 1..5 (fs1..fs5) · combo: 1..5 (ei1..ei5) · rescate-a: 2..4 (R2..R4)
+  seqVersion?: number; // durar-mas: 3 = secuencia v3 (30/09/2026, ep1/ep2). Sin versión = entry legado dm1..dm6 (se cancela sola)
   mailVariant?: MailVariant; // legado: variante del M1 viejo (A/B)
   seqTrack?: SeqTrack; // secuencia v6 (24/09/2026): 'A' (día 1, día 4) · 'B' (día 3). Sin track = entry legado M1..M8
   rescateVariante?: string; // rescate-a: valor de la columna Variante del CRM (PD de R3)
@@ -646,18 +650,18 @@ async function getEnrolledDurarMasEmails(): Promise<Set<string>> {
 }
 
 /**
- * Enrola un email en la secuencia durar-mas (dm1..dm6).
- * `dates` = 6 instantes ya calculados por el caller (computeDurarMasDates).
+ * Enrola un email en la secuencia durar-mas v3 (ep1 día 1, ep2 día 4).
+ * `dates` = instantes ya calculados por el caller (computeDurarMasDates).
  * El mail de entrega NO se encola acá: es el mail inmediato del endpoint
  * /api/form/durar-mas.
  */
 export async function enrollDurarMas(params: {
   email: string;
   name?: string;
-  dates: Date[]; // length 6, dm1..dm6
+  dates: Date[]; // length DURARMAS_OFFSETS_DIAS.length (ep1, ep2)
 }): Promise<{ scheduled: number; skipped?: 'already-enrolled' | 'bad-dates' }> {
   const email = (params.email || '').trim().toLowerCase();
-  if (params.dates.length !== 6) return { scheduled: 0, skipped: 'bad-dates' };
+  if (params.dates.length !== DURARMAS_OFFSETS_DIAS.length) return { scheduled: 0, skipped: 'bad-dates' };
 
   const enrolled = await getEnrolledDurarMasEmails();
   if (enrolled.has(email)) return { scheduled: 0, skipped: 'already-enrolled' };
@@ -665,8 +669,8 @@ export async function enrollDurarMas(params: {
   const now = new Date().toISOString();
   const fields: Record<string, string> = {};
 
-  for (let i = 0; i < 6; i++) {
-    const seqStep = i + 1; // dm1..dm6
+  for (let i = 0; i < params.dates.length; i++) {
+    const seqStep = i + 1; // ep1, ep2
     const { subject } = buildDurarMasMail(seqStep, params.name);
     const entry: ScheduledEmail = {
       id: `dm_${Date.now()}_${seqStep}_${Math.random().toString(36).slice(2, 8)}`,
@@ -681,49 +685,16 @@ export async function enrollDurarMas(params: {
       createdAt: now,
       kind: 'durar-mas',
       seqStep,
+      seqVersion: DURARMAS_SEQ_VERSION,
     };
     fields[entry.id] = JSON.stringify(entry);
   }
 
-  // Un solo hset con los 6 pasos.
+  // Un solo hset con todos los pasos.
   await kv.hset(DRIP_QUEUE_KEY, fields);
 
-  console.log(`Durar-mas enrolado: ${email} (6 mails)`);
-  return { scheduled: 6 };
-}
-
-/**
- * Chequeo best-effort para el dm6: ¿este email ya clickeó algún mail
- * transaccional en los últimos 30 días? Consulta los eventos de click de la
- * API de Brevo. Fail-open: ante error, timeout o respuesta vacía devuelve
- * false y el mail sale igual.
- */
-async function hasClickedRecently(email: string): Promise<boolean> {
-  const apiKey = process.env.BREVO_API_KEY;
-  if (!apiKey) return false;
-
-  try {
-    const params = new URLSearchParams({
-      email,
-      event: 'clicks',
-      limit: '20',
-      days: '30',
-    });
-    const res = await fetch(
-      `https://api.brevo.com/v3/smtp/statistics/events?${params.toString()}`,
-      {
-        headers: { accept: 'application/json', 'api-key': apiKey },
-        // Timeout corto: este chequeo no puede colgar la corrida del cron.
-        signal: AbortSignal.timeout(5000),
-      }
-    );
-    if (!res.ok) return false;
-    const data = (await res.json()) as { events?: unknown[] };
-    return Array.isArray(data.events) && data.events.length > 0;
-  } catch (err) {
-    console.warn(`Durar-mas: chequeo de clicks falló para ${email} (fail-open):`, err);
-    return false;
-  }
+  console.log(`Durar-mas enrolado: ${email} (${params.dates.length} mails)`);
+  return { scheduled: params.dates.length };
 }
 
 interface DurarMasRunResult {
@@ -739,7 +710,7 @@ interface DurarMasRunResult {
  * processSecuenciaDue (sin Sheet CRM ni exclusión 1-a-1). Re-chequea ANTES de
  * cada envío: cliente (getClientes incluye a los compradores del curso EP) y
  * blacklist Brevo → cancela. El dm6 además se cancela si el lead ya clickeó
- * algún mail de la serie (hasClickedRecently, best-effort fail-open: ya evaluó
+ * algún mail de la serie (regla retirada en la v3; el ep2 se corta por Estado del CRM: ya evaluó
  * la landing, perseguirlo de nuevo con el mismo pitch no suma). Respeta el
  * orden estricto dm(N-1)→dm(N). Envía
  * desde info@ (DURARMAS_SENDER_SECUENCIA) y registra cada envío en el Sheet de
@@ -763,6 +734,9 @@ async function processDurarMasDue(
   } catch (err) {
     console.warn('Durar-mas: no se pudo cargar el mapa de clientes (fail-open):', err);
   }
+
+  // Estados del CRM (col F), una sola lectura por corrida y sólo si hace falta.
+  let estados: Map<string, string> | null | undefined;
 
   const blCache = new Map<string, boolean>();
   const blacklisted = async (email: string): Promise<boolean> => {
@@ -808,6 +782,12 @@ async function processDurarMasDue(
       continue;
     }
 
+    // ── Legado v2 (dm1..dm6, sin seqVersion): la v3 del 30/09/2026 los reemplaza ──
+    if (entry.seqVersion !== DURARMAS_SEQ_VERSION || step > DURARMAS_OFFSETS_DIAS.length) {
+      await cancel(id, entry, 'secuencia-legacy');
+      continue;
+    }
+
     // ── Re-chequeo de exclusiones (antes de CADA envío) ──
     if (clientesMap && (await esCliente(email, clientesMap))) {
       await cancel(id, entry, 'cliente');
@@ -818,24 +798,30 @@ async function processDurarMasDue(
       continue;
     }
 
-    // ── Orden estricto: no sale dm_N si no salió dm_(N-1) ──
+    // ── Orden: ep2 espera a que ep1 haya salido. Un ep1 'failed' NO bloquea
+    // (en agosto de 2026 la regla estricta congeló 223 leads tras un corte de
+    // créditos de Brevo); un ep1 cancelado sí corta el resto. ──
     if (step >= 2) {
       const prev = stepsByEmail.get(email)?.get(step - 1);
       if (prev?.status === 'cancelled') {
         await cancel(id, entry, 'previo-cancelado');
         continue;
       }
-      if (!prev || prev.status !== 'sent') {
-        // el previo aún no se envió (o falló) → posponer este paso
+      if (!prev || prev.status === 'pending') {
         res.deferred++;
         continue;
       }
     }
 
-    // ── dm6 sólo para quienes NO clickearon ningún mail anterior ──
-    if (step === 6 && (await hasClickedRecently(email))) {
-      await cancel(id, entry, 'ya-clickeo');
-      continue;
+    // ── ep2 sólo si nadie respondió / gestionó al lead (Estado del CRM).
+    // Pedido de Mauro 30/09/2026: quien responde el mail 0 o el 1 no recibe el 2.
+    // Un acuse trivial ("Recibido — gracias") no corta. Fail-open si el Sheet falla. ──
+    if (step === DURARMAS_OFFSETS_DIAS.length) {
+      if (estados === undefined) estados = await readEstadosDurarMas();
+      if (estadoCortaDurarMas(estados?.get(email))) {
+        await cancel(id, entry, 'estado-crm');
+        continue;
+      }
     }
 
     // ── Envío ──
@@ -854,15 +840,15 @@ async function processDurarMasDue(
       entry.status = 'sent';
       entry.sentAt = now.toISOString();
       await kv.hset(DRIP_QUEUE_KEY, { [id]: JSON.stringify(entry) });
-      console.log(`Durar-mas enviado: dm${step} → ${email}`);
+      console.log(`Durar-mas enviado: ep${step} → ${email}`);
       // Registro en el Sheet de leads (markSecuenciaDurarMas nunca lanza).
-      await markSecuenciaDurarMas(email, `dm${step} enviado ${fechaArgDDMM(now)}`);
+      await markSecuenciaDurarMas(email, `ep${step} enviado ${fechaArgDDMM(now)}`);
     } else {
       res.failed++;
       entry.status = 'failed';
       entry.error = result.error;
       await kv.hset(DRIP_QUEUE_KEY, { [id]: JSON.stringify(entry) });
-      console.error(`Durar-mas falló: dm${step} → ${email}: ${result.error}`);
+      console.error(`Durar-mas falló: ep${step} → ${email}: ${result.error}`);
     }
   }
 

@@ -1,11 +1,10 @@
 /**
  * Envío de test de la secuencia "Durar más" (curso EP).
  *
- * Manda AHORA los 7 mails (entrega + dm1..dm6) al email del query, con los
- * asuntos prefijados "[TEST dmN] ". Es lo ÚNICO que envía mails de esta tarea,
- * y sólo al email pasado en ?to=. Sirve para revisar el copy en el inbox antes
- * de enrolar a nadie. La entrega sale con el sender de producción (mauro@) y
- * dm1..dm6 con el de la secuencia (info@).
+ * Manda AHORA los 3 mails de la v3 (ep0 entrega + ep1 día 1 + ep2 día 4) al
+ * email del query, con los asuntos prefijados "[TEST epN] ". Es lo ÚNICO que
+ * envía mails de esta tarea, y sólo al email pasado en ?to=. Sirve para revisar
+ * el copy en el inbox antes de enrolar a nadie. Todo sale desde mauro@.
  *
  * Protegido con API_SECRET_KEY (query ?token= o header x-api-key).
  *
@@ -51,11 +50,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Orden de la muestra: entrega, dm1..dm6.
+  // Orden de la muestra: ep0 (entrega), ep1, ep2.
   const specs: Array<{ label: string; mail: DurarMasMail; sender: { name: string; email: string } }> = [
-    { label: 'dm-entrega', mail: mailEntrega(name), sender: DURARMAS_SENDER_ENTREGA },
-    ...[1, 2, 3, 4, 5, 6].map((step) => ({
-      label: `dm${step}`,
+    { label: 'ep0', mail: mailEntrega(name), sender: DURARMAS_SENDER_ENTREGA },
+    ...[1, 2].map((step) => ({
+      label: `ep${step}`,
       mail: buildDurarMasMail(step, name),
       sender: DURARMAS_SENDER_SECUENCIA,
     })),

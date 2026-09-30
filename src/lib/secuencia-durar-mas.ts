@@ -1,7 +1,10 @@
 /**
  * Funnel "Durar más" (curso de eyaculación precoz, producto 3208) — mail de
- * entrega + secuencia de 6 mails (dm1..dm6). El dm6 sale sólo para quienes no
- * clickearon ningún mail anterior (filtro en el motor drip, email-drip.ts).
+ * entrega (ep0, inmediato) + secuencia v3 de 2 mails: ep1 (día 1, sin link) y
+ * ep2 (día 4). La v2 (dm1..dm6, 24/07/2026) se retiró el 30/09/2026: 6 de 7
+ * compras eran del día 0 y los mails de contenido no vendían (análisis en
+ * OBSIDIAN/06-Procesos/embudos/embudo-durar-mas.md). El ep2 no sale si el lead
+ * ya respondió y hubo gestión humana (Estado del CRM, ver estadoCortaDurarMas).
  *
  * Este módulo es PURO (sin IO), espejo de secuencia-post-typeform.ts: builders
  * de los mails y cálculo de fechas anclado al calendario de Argentina
@@ -10,7 +13,7 @@
  * el mail de entrega inmediato.
  *
  * Copy fuente: OBSIDIAN/PROGRAMA y Producto/06-Procesos/secuencias-email/
- * durar-mas/secuencia-durar-mas.md (editar allá primero, pegar acá).
+ * durar-mas/secuencia-durar-mas-v3.md (editar allá primero, pegar acá).
  */
 
 export const DURARMAS_TAG = 'secuencia-durar-mas';
@@ -29,164 +32,49 @@ interface MailCopy {
   body: string;
 }
 
-// ─── Copy de los mails ──────────────────────────────────────────────
+// ─── Copy de los mails (v3, aprobada por Mauro 30/09/2026) ─────────
 //
 // Fuente: OBSIDIAN/PROGRAMA y Producto/06-Procesos/secuencias-email/durar-mas/
-// secuencia-durar-mas.md. El saludo ("Hola Juan," / "Hola,") lo agrega el
-// builder vía saludo(): el body arranca DESPUÉS del saludo. Atribución con
-// sufijo ?mseq=dm0..dm6 en cada link.
+// secuencia-durar-mas-v3.md. Principio: la página explica y vende; el mail es
+// simple y tiene un solo pedido. El saludo ("Hola Juan," / "Hola,") lo agrega
+// el builder vía saludo(): el body arranca DESPUÉS del saludo. Atribución con
+// sufijo ?mseq=ep0 (entrega) y ?mseq=ep2 (día 4); el ep1 va sin link.
 
 const LANDING = 'https://urologia.ar/controla-tu-eyaculacion';
 
+/** ep0 — entrega inmediata. Un solo pedido: que entre a la página. */
 export const COPY_ENTREGA: MailCopy = {
-  subject: 'Acá está lo que pediste (y una pregunta)',
-  body: `Acá tenés lo que pediste: el método completo para entrenar el control y durar más, paso a paso.
+  subject: 'acá está lo que pediste',
+  body: `Acá está lo que pediste:
+${LANDING}?mseq=ep0
 
-${LANDING}?mseq=dm0
-
-Antes de abrirlo, una pregunta: ¿hace cuánto venís con esto? ¿Meses? ¿Más? Casi nadie lleva esa cuenta, porque llevarla incomoda.
-
-Hoy hiciste algo que corta esa inercia: dejaste tu email. El paso que sigue es igual de simple: abrí el link y mirá el temario. Fijate si te describe.
-
-El curso es pregrabado: el día que entrás, empezás ese mismo día.
+Ahí está el método completo para durar más y cómo empezar hoy.
 
 Abrazo,
-Mauro
-
-PD. En dos días te escribo con el ciclo exacto que hace que termines rápido. Cuando lo veas, vas a entender por qué se repite aunque le pongas toda tu voluntad.`,
+Mauro`,
 };
 
+/** ep1 — día 1, seguimiento. Sin link: que cuente qué le pareció. */
 export const COPY_M1: MailCopy = {
-  subject: 'Cuanto más querés durar, más rápido terminás',
-  body: `"Cuanto más me concentro en durar, más rápido termino."
+  subject: '¿la pudiste ver?',
+  body: `Ayer te mandé la página del curso para durar más. ¿La pudiste ver?
 
-Es la frase que más se repite cuando un hombre consulta por eyaculación precoz. Fijate si te suena.
-
-Llegás al encuentro pensando en no terminar rápido. Tu cuerpo lee eso como peligro y activa el sistema de alerta: taquicardia, tensión, respiración corta. En ese estado, tu umbral de eyaculación baja. Terminás antes. El miedo se confirma. La próxima vez llegás peor.
-
-Ahora, un dato: cerca del 30% de los hombres cree tener eyaculación precoz. Menos del 5% la tiene en el sentido clínico. La enorme mayoría está atrapada en este ciclo, comparándose con el porno. Si ese es tu caso, es una buena noticia: lo que se aprendió con repeticiones se reentrena con repeticiones.
-
-¿Cuántas vueltas de ese ciclo llevás vos? Cada encuentro sin entrenar es una vuelta más. Los ejercicios que lo cortan, en orden y con progresión, están acá:
-
-${LANDING}?mseq=dm1
+Contame qué te pareció.
 
 Abrazo,
-Urólogo Mauro Carrillo
-urologia.ar
-
-PD. En el próximo mail te cuento por qué lo que venís probando te alivia un rato y te deja en el mismo lugar.`,
+Mauro`,
 };
 
+/** ep2 — día 4, seguimiento profundo: seguridad de buena compra + empezar hoy. */
 export const COPY_M2: MailCopy = {
-  subject: '¿Hace cuánto venís probando trucos?',
-  body: `Pensar en otra cosa. Mirar para cualquier lado. Apurar el encuentro para sacarte la presión de encima.
+  subject: '¿qué te gustaría saber antes de entrar?',
+  body: `Hace unos días te mandé la página del curso y ya sabés de qué se trata. Lo que queda es que estés seguro de que es una buena decisión, y para eso estoy acá: respondeme este mail con lo que te gustaría saber antes de entrar y te contesto yo.
 
-Si ya probaste alguna de esas, hacé memoria: ¿hace cuánto empezaste? Esos trucos no se inventan la primera vez. Se acumulan con los meses, y son la señal de que esto viene ocupando lugar hace rato.
-
-El problema es que todos hacen lo mismo: te desconectan del momento, pero tu cuerpo sigue acelerado y la ansiedad sigue ahí. Tapan el síntoma un rato. La causa queda intacta.
-
-Lo que funciona es entrenar la respuesta: reconocer tus señales antes del punto de no retorno y regular tu sistema nervioso para quedarte en la zona donde disfrutás con control. Eso se entrena con ejercicios concretos y una progresión:
-
-${LANDING}?mseq=dm2
+¿Hace cuánto que te gustaría estar bien con esto? Empezando hoy mismo, lo podés lograr antes de lo que te imaginás:
+${LANDING}?mseq=ep2
 
 Abrazo,
-Urólogo Mauro Carrillo
-urologia.ar
-
-PD. En unos días te muestro el camino completo, paso por paso. Si sentís que ya sabés qué hacer pero no por dónde empezar, ese mail es para vos.`,
-};
-
-export const COPY_M3: MailCopy = {
-  subject: 'Sabés qué hacer. Te falta el plan.',
-  body: `Muchos hombres que consultan por eyaculación precoz ya leyeron de todo. Conocen los ejercicios, saben que la ansiedad influye. Y en la cama todo sigue igual, porque los consejos sueltos no arman un camino.
-
-Lo que falta es el plan: qué hacer primero, cómo progresar, cuándo sumar a la pareja, cómo sostener los avances. El curso es ese plan, en 10 módulos y en orden:
-
-- Primero entendés qué te pasa y qué mantiene vivo el problema.
-- Después preparás la base: hábitos, expectativas, pareja.
-- Después entrenás: ejercicios por niveles, con resultados en 4 a 12 semanas de práctica.
-- Al final armás tu propio plan para sostenerlo.
-
-Es pregrabado: entrás hoy, empezás hoy. Sin horarios y sin dar la cara.
-
-"Hice tratamiento con otros urólogos pero nadie me explicó ni un poco de lo que se habla en este curso. Solo me dieron pastillas sin mirarme la cara." — D.L.
-
-El temario completo está acá:
-
-${LANDING}?mseq=dm3
-
-Abrazo,
-Urólogo Mauro Carrillo
-urologia.ar
-
-PD. En el próximo mail respondo la duda que más frena antes de empezar: qué pasa con las pastillas.`,
-};
-
-export const COPY_M4: MailCopy = {
-  subject: '¿Pastilla o entrenamiento?',
-  body: `La duda que más aparece antes de empezar: "¿No es más fácil una pastilla?"
-
-Las pastillas y las cremas hacen su trabajo mientras las usás. Cuando las dejás, el control se va con ellas. El entrenamiento funciona distinto: lo que aprendés queda, porque el que cambia sos vos. Por eso el curso incluye un módulo de farmacología, informativo y sin vender nada, para que decidas sabiendo.
-
-La otra duda: "¿Sirve para mi caso?" El método entrena lo mismo en todos: reconocer tus señales y regular tu respuesta. Funciona para la eyaculación precoz de toda la vida y para la que apareció después de años sin problemas.
-
-"Es increíble cómo con conocimiento, entendiendo la fisiología y cómo abordar un encuentro, pude mejorar sin pastillas." — R.M.
-
-Si tu duda es otra, contestame este mail y te respondo yo.
-
-El temario completo está acá:
-
-${LANDING}?mseq=dm4
-
-Abrazo,
-Urólogo Mauro Carrillo
-urologia.ar
-
-PD. El próximo es el último de la serie. Te llevo una cuenta hecha: la de los meses que ya pasaron y la de los que vienen.`,
-};
-
-export const COPY_M5: MailCopy = {
-  subject: '¿Hace cuánto venís así?',
-  body: `Último mail de esta serie. Te dejo una cuenta en dos partes.
-
-Hacia atrás: ¿hace cuánto que cada encuentro es estar pendiente de no terminar? ¿Meses? ¿Años? Ese tiempo ya lo pagaste.
-
-Hacia adelante: los ejercicios muestran resultados en 4 a 12 semanas de práctica. Empezando hoy, en uno o dos meses podés estar viviendo otra cosa en la cama. Cada semana que lo corras, corre también ese resultado.
-
-Seguir igual también es una decisión. Solo que se toma sola, cada día que pasa sin hacer nada distinto.
-
-"La claridad que tiene Mauro para explicar y empatizar te motiva a mejorar cada día. Es muy fácil de entender y con un poco de esfuerzo se puede mejorar." — F.A.
-
-Vos ya sabés que hay que hacer algo. Lo supiste el día que dejaste tu email. Empezar es un click:
-
-${LANDING}?mseq=dm5
-
-Si algo todavía te frena, contestame este mail y te respondo yo.
-
-Abrazo,
-Urólogo Mauro Carrillo
-urologia.ar
-
-PD. Acá termina la serie, pero el curso queda disponible. Este link te va a estar esperando. La cuenta, mientras tanto, sigue corriendo.`,
-};
-
-export const COPY_M6: MailCopy = {
-  subject: 'Lo que tu pareja completa en silencio',
-  body: `Una de las frases que más escucho: "No sé cómo hablarlo con mi pareja."
-
-Y mientras nadie lo nombra, pasan dos cosas: vos llegás a cada encuentro pendiente de aguantar, y tu pareja completa el silencio por su cuenta, casi siempre con una explicación peor que la real.
-
-El curso tiene un módulo entero sobre esto: cómo hablarlo sin que se vuelva presión, cuándo sumar a tu pareja al entrenamiento, y cómo manejarlo si hoy no tenés pareja estable.
-
-Está acá, junto con todo el resto:
-
-${LANDING}?mseq=dm6
-
-Abrazo,
-Urólogo Mauro Carrillo
-urologia.ar
-
-PD. Este sí es el último de la serie. El curso queda disponible; si te quedó una duda puntual, contestame este mail y te respondo yo.`,
+Mauro`,
 };
 
 // ─── Builders ───────────────────────────────────────────────────────
@@ -216,25 +104,9 @@ export function mail2(name?: string): DurarMasMail {
   return renderMail(COPY_M2, name);
 }
 
-export function mail3(name?: string): DurarMasMail {
-  return renderMail(COPY_M3, name);
-}
-
-export function mail4(name?: string): DurarMasMail {
-  return renderMail(COPY_M4, name);
-}
-
-export function mail5(name?: string): DurarMasMail {
-  return renderMail(COPY_M5, name);
-}
-
-export function mail6(name?: string): DurarMasMail {
-  return renderMail(COPY_M6, name);
-}
-
 /**
  * Devuelve el mail de un paso de la secuencia durar-mas.
- * @param step 1..6 (dm1..dm6)
+ * @param step 1..2 (ep1 día 1, ep2 día 4)
  * @param name nombre (fallback: undefined → "Hola,")
  */
 export function buildDurarMasMail(step: number, name?: string): DurarMasMail {
@@ -243,17 +115,23 @@ export function buildDurarMasMail(step: number, name?: string): DurarMasMail {
       return mail1(name);
     case 2:
       return mail2(name);
-    case 3:
-      return mail3(name);
-    case 4:
-      return mail4(name);
-    case 5:
-      return mail5(name);
-    case 6:
-      return mail6(name);
     default:
       throw new Error(`Paso de secuencia durar-mas inválido: ${step}`);
   }
+}
+
+/**
+ * ¿El Estado seguimiento del CRM corta los mails automáticos que faltan?
+ * Cualquier Estado cargado significa que el lead respondió y hubo gestión
+ * humana ("Respondido — …", "COMPRÓ", "Cerrado", "Contactado…"), salvo los
+ * acuses triviales que /responder-mails registra como "Recibido — …" (un
+ * "gracias" solo): esos siguen recibiendo la secuencia. Pedido de Mauro
+ * 30/09/2026: quien responde el mail 0 o el 1 no recibe el 2.
+ */
+export function estadoCortaDurarMas(estado: string | null | undefined): boolean {
+  const e = (estado || '').trim().toLowerCase();
+  if (!e) return false;
+  return !e.startsWith('recibido');
 }
 
 // ─── Cálculo de fechas (anclado al calendario de Argentina) ─────────
@@ -283,13 +161,18 @@ function addDays(day: Date, n: number): Date {
   return new Date(day.getTime() + n * DAY_MS);
 }
 
-/** Offsets en días (desde el día ART del alta) de dm1..dm6. */
-export const DURARMAS_OFFSETS_DIAS: ReadonlyArray<number> = [2, 4, 7, 10, 12, 21];
+/** Offsets en días (desde el día ART del alta) de ep1 y ep2 (v3, 30/09/2026). */
+export const DURARMAS_OFFSETS_DIAS: ReadonlyArray<number> = [1, 4];
+
+/** Cantidad de pasos encolados (ep1, ep2). El ep0 es el mail inmediato del endpoint. */
+export const DURARMAS_STEPS = DURARMAS_OFFSETS_DIAS.length;
+
+/** Versión de secuencia grabada en cada entry de la cola; sin versión = legado dm1..dm6. */
+export const DURARMAS_SEQ_VERSION = 3;
 
 /**
- * Fechas de dm1..dm6 para un lead que entra en `enrolledAt`:
- * +2, +4, +7, +10, +12 y +21 días del día ART del alta, entregados en la
- * corrida del cron de las 10:00 ART de cada día.
+ * Fechas de ep1 y ep2 para un lead que entra en `enrolledAt`: +1 y +4 días del
+ * día ART del alta, entregados en la corrida del cron de las 10:00 ART.
  */
 export function computeDurarMasDates(enrolledAt: Date): Date[] {
   const base = artDayOf(enrolledAt);

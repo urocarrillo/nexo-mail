@@ -177,3 +177,27 @@ export async function markClienteDurarMas(email: string, texto: string): Promise
     console.error('Durar-mas sheet cliente mark error (non-blocking):', err);
   }
 }
+
+/**
+ * Mapa email → Estado seguimiento (col F) de toda la hoja Leads, en una sola
+ * lectura. Lo usa el motor drip antes del ep2 (v3): un Estado cargado por
+ * /responder-mails o por Mauro corta el mail automático. Best-effort: null si
+ * el Sheet no se pudo leer (el motor lo trata como fail-open).
+ */
+export async function readEstadosDurarMas(): Promise<Map<string, string> | null> {
+  try {
+    if (!SHEET_ID) return null;
+    const token = await getGoogleAccessToken();
+    const rows = await getValues(`${TAB_NAME}!C:F`, token);
+    const map = new Map<string, string>();
+    for (const r of rows) {
+      const em = (r[0] || '').toLowerCase().trim();
+      if (!em || em === 'email') continue;
+      if (!map.has(em)) map.set(em, (r[3] || '').trim());
+    }
+    return map;
+  } catch (err) {
+    console.error('Durar-mas sheet estados read error (non-blocking):', err);
+    return null;
+  }
+}

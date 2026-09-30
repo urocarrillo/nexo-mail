@@ -63,9 +63,9 @@ describe('buildDurarMasMail — copy v3', () => {
   });
 
   it('asuntos aprobados (30/09/2026)', () => {
-    expect(COPY_ENTREGA.subject).toBe('acá está lo que pediste');
-    expect(buildDurarMasMail(1).subject).toBe('¿la pudiste ver?');
-    expect(buildDurarMasMail(2).subject).toBe('¿qué te gustaría saber antes de entrar?');
+    expect(COPY_ENTREGA.subject).toBe('Acá está lo que pediste');
+    expect(buildDurarMasMail(1).subject).toBe('¿La pudiste ver?');
+    expect(buildDurarMasMail(2).subject).toBe('¿Qué te gustaría saber antes de entrar?');
   });
 
   it('sin precios, sin "Dr.", firma "Mauro"', () => {

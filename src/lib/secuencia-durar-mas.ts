@@ -44,7 +44,7 @@ const LANDING = 'https://urologia.ar/controla-tu-eyaculacion';
 
 /** ep0 — entrega inmediata. Un solo pedido: que entre a la página. */
 export const COPY_ENTREGA: MailCopy = {
-  subject: 'acá está lo que pediste',
+  subject: 'Acá está lo que pediste',
   body: `Acá está lo que pediste:
 ${LANDING}?mseq=ep0
 
@@ -56,7 +56,7 @@ Mauro`,
 
 /** ep1 — día 1, seguimiento. Sin link: que cuente qué le pareció. */
 export const COPY_M1: MailCopy = {
-  subject: '¿la pudiste ver?',
+  subject: '¿La pudiste ver?',
   body: `Ayer te mandé la página del curso para durar más. ¿La pudiste ver?
 
 Contame qué te pareció.
@@ -67,7 +67,7 @@ Mauro`,
 
 /** ep2 — día 4, seguimiento profundo: seguridad de buena compra + empezar hoy. */
 export const COPY_M2: MailCopy = {
-  subject: '¿qué te gustaría saber antes de entrar?',
+  subject: '¿Qué te gustaría saber antes de entrar?',
   body: `Hace unos días te mandé la página del curso y ya sabés de qué se trata. Lo que queda es que estés seguro de que es una buena decisión, y para eso estoy acá: respondeme este mail con lo que te gustaría saber antes de entrar y te contesto yo.
 
 ¿Hace cuánto que te gustaría estar bien con esto? Empezando hoy mismo, lo podés lograr antes de lo que te imaginás:

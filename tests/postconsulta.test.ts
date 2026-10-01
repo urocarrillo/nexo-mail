@@ -56,6 +56,7 @@ import {
   nombreDesdeDescripcion,
   parseWcGmt,
 } from '@/lib/postconsulta';
+import { generarCodigoPaciente } from '@/lib/woocommerce-coupons';
 
 const kvMock = jest.requireMock('@vercel/kv') as {
   __store: Map<string, unknown>;
@@ -138,6 +139,8 @@ function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
     const u = new URL(url);
     const idMatch = u.pathname.match(/\/coupons\/(\d+)$/);
     if (method === 'GET') {
+      const codeParam = u.searchParams.get('code');
+      if (codeParam) return Promise.resolve(json(coupons.filter(c => c.code === codeParam.toLowerCase())));
       const search = (u.searchParams.get('search') || '').toLowerCase();
       const page = parseInt(u.searchParams.get('page') || '1', 10);
       if (page > 1) return Promise.resolve(json([]));
@@ -147,6 +150,11 @@ function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
       return Promise.resolve(json(found));
     }
     if (method === 'POST') {
+      if (coupons.some(x => x.code === String(body.code).toLowerCase())) {
+        return Promise.resolve(
+          json({ code: 'woocommerce_rest_coupon_code_already_exists', message: 'The coupon code already exists' }, 400)
+        );
+      }
       const c: FakeCoupon = {
         id: nextCouponId++,
         code: String(body.code).toLowerCase(),
@@ -166,6 +174,10 @@ function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
     if (method === 'PUT' && idMatch) {
       const c = coupons.find(x => x.id === parseInt(idMatch[1], 10));
       if (!c) return Promise.resolve(json({ message: 'not found' }, 404));
+      if (body.date_expires) {
+        c.date_expires = body.date_expires;
+        c.date_expires_gmt = wcGmt(new Date(body.date_expires));
+      }
       for (const m of body.meta_data || []) {
         const existing = c.meta_data.find(x => x.key === m.key);
         if (existing) existing.value = m.value;
@@ -314,7 +326,7 @@ describe('cron postconsulta', () => {
     expect(await listarPendientes()).toHaveLength(1);
   });
 
-  it('reserva de hoy: crea cupón (vence 24 h después del envío), programa Brevo al fin del turno, guarda messageId y desencola', async () => {
+  it('reserva de hoy: crea cupón (vence 15 días después del envío, aunque el mail diga 24 h), programa Brevo al fin del turno, guarda messageId y desencola', async () => {
     await enqueue({ eventUri: EV('hoy'), email: 'ivan@x.com', name: 'Ivan Ponce', endTime: '2026-09-14T15:40:00Z' });
     const res = await cronGET(cronReq());
     const body = await res.json();
@@ -322,8 +334,10 @@ describe('cron postconsulta', () => {
 
     expect(coupons).toHaveLength(1);
     const c = coupons[0];
-    expect(c.code).toMatch(/^pac-[a-z2-9]{6}$/);
-    expect(c.date_expires).toBe('2026-09-15T15:40:00Z'); // sin milisegundos: WooCommerce respeta la Z
+    expect(c.code).toBe('ivanp'); // Nombre + inicial del apellido, en minúsculas como lo guarda WooCommerce
+    expect(c.meta_data.find(m => m.key === '_display_code')?.value).toBe('IvanP');
+    expect(c.date_expires).toBe('2026-09-29T15:40:00Z'); // 15 días; sin milisegundos: WooCommerce respeta la Z
+    expect(c.meta_data.find(m => m.key === '_send_at')?.value).toBe('2026-09-14T15:40:00Z');
     expect(c.meta_data.find(m => m.key === '_event_uri')?.value).toBe(EV('hoy'));
     expect(c.meta_data.find(m => m.key === '_brevo_message_id')?.value).toBe('<msg-1@test>');
 
@@ -331,7 +345,7 @@ describe('cron postconsulta', () => {
     expect(brevoCalls[0]).toMatchObject({
       templateId: 158,
       to: [{ email: 'ivan@x.com', name: 'Ivan Ponce' }],
-      params: { NOMBRE: 'Ivan', COUPON_CODE: c.code.toUpperCase() },
+      params: { NOMBRE: 'Ivan', COUPON_CODE: 'IvanP' },
       scheduledAt: '2026-09-14T15:40:00.000Z',
     });
 
@@ -340,12 +354,65 @@ describe('cron postconsulta', () => {
     expect(mockedAlerta).not.toHaveBeenCalled();
   });
 
-  it('turno ya pasado (corridas perdidas): mail inmediato sin scheduledAt y cupón válido 24 h desde ahora', async () => {
+  it('código ocupado por un cupón vivo de OTRO paciente: variante que sigue siendo un nombre (AgustinFe)', async () => {
+    addCoupon({ code: 'AgustinF', email: 'otro@x.com', name: 'Agustin Fernandez', expiresAt: new Date('2026-09-20T15:40:00Z'), eventUri: EV('otro'), messageId: '<m@test>' });
+    await enqueue({ eventUri: EV('acento'), email: 'agus@x.com', name: 'Agustín Fernández', endTime: '2026-09-14T15:40:00Z' });
+    const res = await cronGET(cronReq());
+    expect((await res.json()).reservas.resumen).toEqual({ programado: 1 });
+    expect(coupons).toHaveLength(2); // el del otro paciente no se toca
+    const nuevo = coupons.find(c => c.meta_data.some(m => m.key === '_patient_email' && m.value === 'agus@x.com'));
+    expect(nuevo?.code).toBe('agustinfe');
+    expect(nuevo?.meta_data.find(m => m.key === '_display_code')?.value).toBe('AgustinFe');
+    expect(brevoCalls[0]).toMatchObject({ params: { NOMBRE: 'Agustín', COUPON_CODE: 'AgustinFe' } });
+  });
+
+  it('código ocupado por un cupón agotado (o vencido): lo borra y el nuevo paciente recibe el mismo código', async () => {
+    const viejo = addCoupon({ code: 'AgustinF', email: 'otro@x.com', name: 'Agustin Fernandez', expiresAt: new Date('2026-09-20T15:40:00Z'), eventUri: EV('otro'), messageId: '<m@test>', used: 1 });
+    await enqueue({ eventUri: EV('nuevo'), email: 'agus@x.com', name: 'Agustín Fernández', endTime: '2026-09-14T15:40:00Z' });
+    const res = await cronGET(cronReq());
+    expect((await res.json()).reservas.resumen).toEqual({ programado: 1 });
+    expect(coupons).toHaveLength(1);
+    expect(coupons[0].id).not.toBe(viejo.id);
+    expect(coupons[0].code).toBe('agustinf');
+    expect(coupons[0].meta_data.find(m => m.key === '_patient_email')?.value).toBe('agus@x.com');
+    expect(brevoCalls[0]).toMatchObject({ params: { COUPON_CODE: 'AgustinF' } });
+  });
+
+  it('mismo paciente con otra consulta dentro de la validez: mismo código, se extiende la fecha y se apunta al turno nuevo', async () => {
+    const previo = addCoupon({ code: 'AgustinF', email: 'agus@x.com', name: 'Agustín Fernández', expiresAt: new Date('2026-09-20T15:40:00Z'), eventUri: EV('primera'), messageId: '<old@test>' });
+    await enqueue({ eventUri: EV('segunda'), email: 'agus@x.com', name: 'Agustín Fernández', endTime: '2026-09-14T15:40:00Z' });
+    const res = await cronGET(cronReq());
+    const body = await res.json();
+    expect(body.reservas.resumen).toEqual({ programado: 1 });
+    expect(body.reservas.detalle[0]).toMatchObject({ couponCode: 'AgustinF', couponCreado: false });
+    expect(coupons).toHaveLength(1);
+    expect(coupons[0].id).toBe(previo.id);
+    expect(coupons[0].date_expires).toBe('2026-09-29T15:40:00Z');
+    expect(coupons[0].meta_data.find(m => m.key === '_event_uri')?.value).toBe(EV('segunda'));
+    expect(coupons[0].meta_data.find(m => m.key === '_brevo_message_id')?.value).toBe('<msg-1@test>');
+    expect(brevoCalls[0]).toMatchObject({ params: { NOMBRE: 'Agustín', COUPON_CODE: 'AgustinF' } });
+  });
+
+  it('generarCodigoPaciente: Nombre + inicial; variantes CarlosDi/CarlosDia/CarlosDiaz; sin apellido 2 dígitos; vacío → Paciente###', () => {
+    expect(generarCodigoPaciente('Carlos Díaz')).toBe('CarlosD');
+    expect(generarCodigoPaciente('Juan Pablo Pérez')).toBe('JuanP');
+    expect(generarCodigoPaciente('  maría josé garcía ')).toBe('MariaG');
+    expect(generarCodigoPaciente("O'Connor Ñandú")).toBe('OconnorN');
+    expect(generarCodigoPaciente('Carlos Díaz', 2)).toBe('CarlosDi');
+    expect(generarCodigoPaciente('Carlos Díaz', 3)).toBe('CarlosDia');
+    expect(generarCodigoPaciente('Carlos Díaz', 4)).toBe('CarlosDiaz');
+    expect(generarCodigoPaciente('Carlos Díaz', 5)).toMatch(/^CarlosD\d{2}$/);
+    expect(generarCodigoPaciente('Carlos')).toMatch(/^Carlos\d{2}$/);
+    expect(generarCodigoPaciente('')).toMatch(/^Paciente\d{3}$/);
+    expect(generarCodigoPaciente('J. 123')).toMatch(/^Paciente\d{3}$/);
+  });
+
+  it('turno ya pasado (corridas perdidas): mail inmediato sin scheduledAt y cupón válido 15 días desde ahora', async () => {
     await enqueue({ eventUri: EV('pasado'), email: 'p@x.com', name: 'Pedro', endTime: '2026-09-13T15:40:00Z' });
     const res = await cronGET(cronReq());
     expect((await res.json()).reservas.resumen).toEqual({ programado: 1 });
     expect(brevoCalls[0]).not.toHaveProperty('scheduledAt');
-    expect(new Date(coupons[0].date_expires as string).toISOString()).toBe('2026-09-15T13:00:00.000Z');
+    expect(new Date(coupons[0].date_expires as string).toISOString()).toBe('2026-09-29T13:00:00.000Z');
   });
 
   it('reutiliza un cupón existente del mismo turno en vez de crear otro', async () => {

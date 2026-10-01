@@ -1,0 +1,100 @@
+<!-- Elementor Custom Code #5383 "Cupón PAC: auto-aplicar en carrito (post-consulta)"
+     Ubicación: elementor_body_end · prioridad 5 · todas las páginas.
+     v2 (30/09/2026): además de auto-aplicar el cupón en carrito/checkout vía Store API,
+     muestra una barra fija abajo con el código y un botón "Copiar código" (JS real,
+     lo que el mail no puede ofrecer). Estado "aplicado ✓" en carrito/checkout.
+     Backup de la v1: wp-snippet-5383-cupon-pac.v1-backup-2026-09-30.html -->
+<script>
+(function(){
+  var KEY='pac_cupon', OK='pac_cupon_ok', OFF='pac_barra_off', TTL=86400000;
+  var q=null;
+  try{ q=new URLSearchParams(window.location.search).get('cupon'); }catch(e){}
+  if(q && /^PAC-[A-Z0-9]{4,10}$/i.test(q)){
+    try{
+      localStorage.setItem(KEY, JSON.stringify({c:q.toUpperCase(), t:Date.now()}));
+      localStorage.removeItem(OK);
+      sessionStorage.removeItem(OFF);
+    }catch(e){}
+  }
+  function leer(k){ try{ return JSON.parse(localStorage.getItem(k)||'null'); }catch(e){ return null; } }
+  function borrar(k){ try{ localStorage.removeItem(k); }catch(e){} }
+  var data=leer(KEY);
+  if(data && (!data.c || (Date.now()-data.t)>TTL)){ borrar(KEY); data=null; }
+  var ok=leer(OK);
+  if(ok && (!ok.c || (Date.now()-ok.t)>TTL)){ borrar(OK); ok=null; }
+  var path=window.location.pathname;
+  var enCompra=/carrito|finalizar-compra|checkout/.test(path);
+  var gracias=/pedido-recibido|order-received/.test(path);
+  var oculta=false; try{ oculta=!!sessionStorage.getItem(OFF); }catch(e){}
+
+  function barra(code, aplicado){
+    if(document.getElementById('pac-barra')) return;
+    var css='#pac-barra{position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#152735;color:#fff;font-family:Arial,Helvetica,sans-serif;box-shadow:0 -2px 12px rgba(0,0,0,.25);border-top:3px solid #5ac8fa;padding:10px 44px calc(10px + env(safe-area-inset-bottom)) 14px;box-sizing:border-box;}'
+      +'#pac-barra .pac-in{max-width:960px;margin:0 auto;display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;text-align:left;}'
+      +'#pac-barra .pac-txt{font-size:11px;color:#5ac8fa;text-transform:uppercase;letter-spacing:1px;line-height:1.3;}'
+      +'#pac-barra .pac-code{font-family:"Courier New",Courier,monospace;font-size:22px;font-weight:bold;letter-spacing:2px;color:#fff;line-height:1.3;}'
+      +'#pac-barra .pac-sub{font-size:13px;color:#cfd8de;line-height:1.3;}'
+      +'#pac-barra button.pac-btn{background:#E67E22;color:#fff;border:0;border-radius:30px;padding:10px 20px;font-size:14px;font-weight:bold;cursor:pointer;font-family:inherit;white-space:nowrap;line-height:1.2;}'
+      +'#pac-barra button.pac-btn.pac-ok{background:#48c9b0;}'
+      +'#pac-barra button.pac-x{position:absolute;right:8px;top:6px;background:none;border:0;color:#cfd8de;font-size:22px;cursor:pointer;line-height:1;padding:4px 8px;}'
+      +'@media(max-width:600px){#pac-barra .pac-code{font-size:19px;} #pac-barra .pac-in{gap:10px;}}';
+    var st=document.createElement('style'); st.textContent=css; document.head.appendChild(st);
+    var bar=document.createElement('div'); bar.id='pac-barra';
+    if(aplicado){
+      bar.innerHTML='<div class="pac-in"><span class="pac-code">'+code+'</span><span class="pac-sub">Tu 30% de descuento ya está aplicado ✓</span></div><button class="pac-x" type="button" aria-label="Cerrar">×</button>';
+    }else{
+      bar.innerHTML='<div class="pac-in"><div><div class="pac-txt">Tu código de paciente</div><div class="pac-code">'+code+'</div><div class="pac-sub">30% de descuento en cursos y programa</div></div><button class="pac-btn" type="button">Copiar código</button></div><button class="pac-x" type="button" aria-label="Cerrar">×</button>';
+    }
+    document.body.appendChild(bar);
+    var ajustar=function(){ document.body.style.paddingBottom=bar.offsetHeight+'px'; };
+    ajustar(); window.addEventListener('resize',ajustar);
+    bar.querySelector('.pac-x').addEventListener('click',function(){
+      bar.parentNode.removeChild(bar); document.body.style.paddingBottom='';
+      try{ sessionStorage.setItem(OFF,'1'); }catch(e){}
+    });
+    var btn=bar.querySelector('.pac-btn');
+    if(btn){
+      btn.addEventListener('click',function(){
+        var listo=function(){ btn.textContent='Copiado ✓'; btn.classList.add('pac-ok'); setTimeout(function(){ btn.textContent='Copiar código'; btn.classList.remove('pac-ok'); },2500); };
+        var viejo=function(){
+          var i=document.createElement('input'); i.value=code; i.setAttribute('readonly',''); i.style.position='fixed'; i.style.opacity='0';
+          document.body.appendChild(i); i.select(); i.setSelectionRange(0,99);
+          try{ if(document.execCommand('copy')) listo(); }catch(e){}
+          document.body.removeChild(i);
+        };
+        if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(code).then(listo, viejo); } else { viejo(); }
+      });
+    }
+  }
+  function cuandoListo(fn){ if(document.body){ fn(); } else { document.addEventListener('DOMContentLoaded',fn); } }
+
+  if(gracias) return;
+  if(!data){
+    if(ok && enCompra && !oculta) cuandoListo(function(){ barra(ok.c,true); });
+    return;
+  }
+  if(!oculta) cuandoListo(function(){ barra(data.c,false); });
+  if(!enCompra) return;
+
+  fetch('/wp-json/wc/store/v1/cart',{credentials:'same-origin'}).then(function(r){
+    var nonce=r.headers.get('Nonce');
+    return r.json().then(function(cart){ return {nonce:nonce,cart:cart}; });
+  }).then(function(ctx){
+    if(!ctx.nonce||!ctx.cart||!ctx.cart.items||!ctx.cart.items.length) return;
+    var yaEsta=(ctx.cart.coupons||[]).some(function(cp){ return (cp.code||'').toUpperCase()===data.c; });
+    var marcar=function(){ try{ localStorage.setItem(OK, JSON.stringify({c:data.c,t:Date.now()})); }catch(e){} borrar(KEY); };
+    if(yaEsta){
+      marcar();
+      var b=document.getElementById('pac-barra'); if(b){ b.parentNode.removeChild(b); document.body.style.paddingBottom=''; }
+      if(!oculta) barra(data.c,true);
+      return;
+    }
+    fetch('/wp-json/wc/store/v1/cart/apply-coupon?code='+encodeURIComponent(data.c),{
+      method:'POST',credentials:'same-origin',headers:{'Nonce':ctx.nonce}
+    }).then(function(res){
+      if(res.ok){ marcar(); window.location.href=window.location.pathname; }
+      else if(res.status===400){ borrar(KEY); }
+    }).catch(function(){});
+  }).catch(function(){});
+})();
+</script>

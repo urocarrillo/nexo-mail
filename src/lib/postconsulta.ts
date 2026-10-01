@@ -3,6 +3,7 @@ import {
   attachMessageIdToCoupon,
   couponMeta,
   createPatientCoupon,
+  codigoVisible,
   findPatientCoupons,
   listPacCoupons,
   parseWcGmt,
@@ -13,7 +14,7 @@ import {
 export { parseWcGmt };
 
 /**
- * Embudo post-consulta Calendly: cupón PAC-XXXXXX (30 %) + mail (template
+ * Embudo post-consulta Calendly: cupón NombreInicial, ej. CarlosD (30 %) + mail (template
  * Brevo #158) al terminar el turno de "Atención Prioritaria".
  *
  * Por qué existe este módulo (14/09/2026): Brevo rechaza programar un
@@ -39,7 +40,12 @@ export const DONE_PREFIX = 'postconsulta:done:';
 export const DONE_TTL_S = 60 * 60 * 24 * 45;
 export const INFLIGHT_VALUE = 'inflight';
 export const INFLIGHT_TTL_S = 300;
-export const COUPON_VALIDITY_MS = 24 * 60 * 60 * 1000; // 24 h desde el envío del mail
+// Validez REAL del cupón: 15 días desde el envío del mail. El mail y lo que
+// Mauro dice en consulta siguen hablando de 24 h (urgencia); el margen extra
+// garantiza que funcione aunque el paciente lo use días después (Mauro, 01/10/2026).
+export const COUPON_VALIDITY_MS = 15 * 24 * 60 * 60 * 1000;
+// Cupones creados antes del 01/10/2026 (sin meta `_send_at`) vencían 24 h después del envío.
+const LEGACY_COUPON_VALIDITY_MS = 24 * 60 * 60 * 1000;
 const IMMEDIATE_WINDOW_MS = 60 * 1000; // si el envío cae dentro del próximo minuto, sale sin scheduledAt
 const ART_OFFSET_MS = -3 * 60 * 60 * 1000; // Argentina no tiene horario de verano
 const BREVO_TIMEOUT_MS = 10000;
@@ -272,14 +278,14 @@ async function asegurarCuponYMail(params: {
     }
   }
   if (cupon && couponMeta(cupon, '_brevo_message_id')) {
-    return { ...base, estado: 'ya-procesada', couponCode: cupon.code.toUpperCase() };
+    return { ...base, estado: 'ya-procesada', couponCode: codigoVisible(cupon) };
   }
 
   if (dry) {
     return {
       ...base,
       estado: 'dry',
-      couponCode: cupon?.code.toUpperCase(),
+      couponCode: (cupon ? codigoVisible(cupon) : undefined),
       couponCreado: !cupon,
       sendAt: sendAt.toISOString(),
     };
@@ -288,10 +294,10 @@ async function asegurarCuponYMail(params: {
   const guardKey = `${DONE_PREFIX}${eventUri}`;
   const guardia = await tomarGuardia(guardKey);
   if (guardia === 'ya-procesada' || guardia === 'en-curso') {
-    return { ...base, estado: guardia, couponCode: cupon?.code.toUpperCase() };
+    return { ...base, estado: guardia, couponCode: (cupon ? codigoVisible(cupon) : undefined) };
   }
 
-  let couponCode = cupon?.code.toUpperCase();
+  let couponCode = (cupon ? codigoVisible(cupon) : undefined);
   let couponId = cupon?.id;
   let couponCreado = false;
   try {
@@ -300,6 +306,7 @@ async function asegurarCuponYMail(params: {
         patientName: name,
         patientEmail: email,
         expiresAt: new Date(sendAt.getTime() + COUPON_VALIDITY_MS),
+        sendAt,
         eventUri,
       });
       if (!creado.success || !creado.code || !creado.couponId) {
@@ -307,7 +314,7 @@ async function asegurarCuponYMail(params: {
       }
       couponCode = creado.code;
       couponId = creado.couponId;
-      couponCreado = true;
+      couponCreado = !creado.reutilizado;
     }
 
     const mail = await enviarMailPostConsulta({ email, name, couponCode, sendAt, now });
@@ -407,7 +414,10 @@ export async function procesarCuponesHuerfanos(opts: {
     if (!email) continue;
     const expira = parseWcGmt(c.date_expires_gmt ?? c.date_expires);
     if (!expira || expira.getTime() <= now.getTime()) continue; // vencido: lo borra el cron de limpieza
-    const sendAt = new Date(expira.getTime() - COUPON_VALIDITY_MS);
+    const sendAtMeta = couponMeta(c, '_send_at');
+    const sendAt = sendAtMeta && !Number.isNaN(Date.parse(sendAtMeta))
+      ? new Date(sendAtMeta)
+      : new Date(expira.getTime() - LEGACY_COUPON_VALIDITY_MS);
     if (!debeProcesarse(sendAt, now)) continue;
 
     const eventUri = couponMeta(c, '_event_uri') || `cupon:${c.code.toUpperCase()}`;

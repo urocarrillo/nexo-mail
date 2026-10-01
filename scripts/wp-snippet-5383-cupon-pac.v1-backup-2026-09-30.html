@@ -1,0 +1,36 @@
+<script>
+(function(){
+  var KEY='pac_cupon';
+  try{
+    var q=new URLSearchParams(window.location.search).get('cupon');
+    if(q && /^PAC-[A-Z0-9]{4,10}$/i.test(q)){
+      localStorage.setItem(KEY, JSON.stringify({c:q.toUpperCase(), t:Date.now()}));
+    }
+  }catch(e){}
+  var data=null;
+  try{data=JSON.parse(localStorage.getItem(KEY)||'null');}catch(e){}
+  if(!data||!data.c||(Date.now()-data.t)>86400000){
+    if(data){try{localStorage.removeItem(KEY);}catch(e){}}
+    return;
+  }
+  if(!/carrito|finalizar-compra|checkout/.test(window.location.pathname)) return;
+  fetch('/wp-json/wc/store/v1/cart',{credentials:'same-origin'}).then(function(r){
+    var nonce=r.headers.get('Nonce');
+    return r.json().then(function(cart){return {nonce:nonce,cart:cart};});
+  }).then(function(ctx){
+    if(!ctx.nonce||!ctx.cart||!ctx.cart.items||!ctx.cart.items.length) return;
+    var applied=(ctx.cart.coupons||[]).some(function(cp){return (cp.code||'').toUpperCase()===data.c;});
+    if(applied){localStorage.removeItem(KEY);return;}
+    fetch('/wp-json/wc/store/v1/cart/apply-coupon?code='+encodeURIComponent(data.c),{
+      method:'POST',credentials:'same-origin',headers:{'Nonce':ctx.nonce}
+    }).then(function(res){
+      if(res.ok){
+        localStorage.removeItem(KEY);
+        window.location.href=window.location.pathname;
+      } else if(res.status===400){
+        localStorage.removeItem(KEY);
+      }
+    }).catch(function(){});
+  }).catch(function(){});
+})();
+</script>

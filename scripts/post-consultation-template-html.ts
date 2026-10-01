@@ -6,12 +6,16 @@
  *
  * Design: plain personal letter — no header, no footer, no cards.
  * Reads as if Mauro typed it after the consultation. Three orange buttons.
+ * The coupon code sits ALONE in a dashed box (big, monospace, letter-spaced)
+ * so a long-press on the phone selects only the code — nothing glued to it
+ * (30/09/2026: a patient pasted it wrong when it was inline in a paragraph),
+ * and repeated once more as plain bold text on its own line (Mauro's request).
  * No prices in the email (only the discount %), so it stays valid when
  * product prices change.
  *
  * Template params (passed by Nexo-mail at send time):
  *   {{ params.NOMBRE }}      — patient first name
- *   {{ params.COUPON_CODE }} — unique coupon code (PAC-XXXXXX)
+ *   {{ params.COUPON_CODE }} — unique coupon code, Nombre + inicial (ej. CarlosD; legado PAC-XXXXXX)
  *
  * Links carry ?cupon={{ params.COUPON_CODE }} — a JS snippet on urologia.ar
  * (Elementor Custom Code "Cupón PAC: auto-aplicar en carrito") stores it and
@@ -53,7 +57,22 @@ export const htmlContent = `<!DOCTYPE html>
 
   <p style="color:#313131;font-size:16px;line-height:1.6;margin:0 0 16px;">Gracias por la confianza de hoy.</p>
 
-  <p style="color:#313131;font-size:16px;line-height:1.6;margin:0 0 28px;">Como agradecimiento te dejo algo que solo reciben mis pacientes: el c&oacute;digo <strong style="font-family:'Courier New',Courier,monospace;font-size:17px;">{{ params.COUPON_CODE }}</strong>, con un <strong>30% de descuento</strong> en mis cursos y en el programa online. Es de uso &uacute;nico y vence en 24 horas. Copialo y pegalo al momento de pagar en cualquiera de estos:</p>
+  <p style="color:#313131;font-size:16px;line-height:1.6;margin:0 0 18px;">Como agradecimiento te dejo algo que solo reciben mis pacientes: un <strong>30% de descuento</strong> en mis cursos y en el programa online. Este es tu c&oacute;digo:</p>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px;">
+    <tr>
+      <td align="center" style="background-color:#eef9fe;border:2px dashed #5ac8fa;border-radius:8px;padding:18px 16px;">
+        <p style="color:#666666;font-size:12px;letter-spacing:1px;text-transform:uppercase;margin:0 0 6px;">Tu c&oacute;digo de paciente</p>
+        <p style="font-family:'Courier New',Courier,monospace;font-size:28px;font-weight:bold;letter-spacing:3px;color:#152735;margin:0;">{{ params.COUPON_CODE }}</p>
+        <p style="color:#666666;font-size:13px;margin:8px 0 0;">Uso &uacute;nico &middot; vence en 24 horas</p>
+      </td>
+    </tr>
+  </table>
+
+  <p style="color:#313131;font-size:16px;line-height:1.6;margin:0 0 4px;">Tambi&eacute;n en texto simple, para copiarlo desde ac&aacute;:</p>
+  <p style="color:#152735;font-size:18px;font-weight:bold;line-height:1.6;margin:0 0 18px;">{{ params.COUPON_CODE }}</p>
+
+  <p style="color:#313131;font-size:16px;line-height:1.6;margin:0 0 28px;">Copialo y pegalo al momento de pagar en cualquiera de estos:</p>
 
   <p style="color:#152735;font-size:17px;font-weight:bold;margin:0 0 8px;">Controla tu Mente, Recupera tu Erecci&oacute;n</p>
   <p style="color:#313131;font-size:15px;line-height:1.6;margin:0;">El programa de 8 semanas para superar la ansiedad de desempe&ntilde;o y volver a tener erecciones firmes, sin pastillas. T&eacute;cnicas de mente y cuerpo en video, gu&iacute;as descargables y una consulta 1-1 conmigo incluida para revisar tu caso.</p>

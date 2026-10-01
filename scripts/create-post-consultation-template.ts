@@ -4,7 +4,7 @@
  *
  * Template params (passed by Nexo-mail at send time):
  *   {{ params.NOMBRE }}      — patient first name
- *   {{ params.COUPON_CODE }} — unique coupon code (PAC-XXXXXX)
+ *   {{ params.COUPON_CODE }} — unique coupon code, Nombre + inicial (ej. CarlosD; legado PAC-XXXXXX)
  */
 
 import * as Brevo from '@getbrevo/brevo';

@@ -7,10 +7,12 @@
  *   A NOMBRE | B id de contacto | C tiempo | D mail |
  *   E mail_enviado | F fecha_mail_enviado | G completo_form | H fecha_completo_form
  *
- * Las filas de ManyChat las escribe ManyChat y las procesa el Apps Script del
- * sheet (onChange → POST a /api/webhook/tiktok-form). Las filas de la landing
- * web las escribe este lib DESPUÉS de enviar el mail, con E=SUCCESS, para que
- * el Apps Script nunca las reprocese (evita mail duplicado).
+ * Las filas viejas de ManyChat las escribía ManyChat y las procesaba el Apps
+ * Script del sheet (onChange → POST a /api/webhook/tiktok-form). Las filas de
+ * /api/form/programa (landing web y DMs de ManyChat) las escribe este lib
+ * DESPUÉS de enviar el mail, con E=SUCCESS, para que el Apps Script nunca las
+ * reprocese (evita mail duplicado). Col B: id de contacto de ManyChat si vino
+ * (DM), si no `bio-<source>`.
  *
  * Best-effort: nunca lanza; loguea el error y devuelve ok:false.
  */
@@ -83,6 +85,8 @@ export async function logLeadProgramaWeb(data: {
   nombre: string;
   email: string;
   source: string;
+  /** {Id de contacto} de ManyChat (leads por DM). */
+  idContacto?: string;
 }): Promise<{ ok: boolean; duplicate?: boolean }> {
   try {
     if (!SHEET_ID) throw new Error('TIKTOK_PROGRAMA_SHEET_ID not configured');
@@ -95,7 +99,7 @@ export async function logLeadProgramaWeb(data: {
     const now = new Date();
     const row = [
       data.nombre,
-      `bio-${data.source}`, // B id de contacto: marca el canal (vs. IDs numéricos de ManyChat)
+      data.idContacto || `bio-${data.source}`, // B id de contacto: id de ManyChat (DM) o canal de la bio
       fechaArtCompleta(now),
       data.email.toLowerCase().trim(),
       'SUCCESS',

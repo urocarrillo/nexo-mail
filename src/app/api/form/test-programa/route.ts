@@ -13,6 +13,7 @@ import {
   type PendingMark,
 } from '@/lib/postest';
 import { enviarAlerta } from '@/lib/alertas';
+import { etiquetarTier } from '@/lib/manychat';
 import {
   CONTACTO_COL_KEYS,
   CONTACTO_TEXTOS,
@@ -49,7 +50,9 @@ import {
  *                    que Typeform) → respuesta al front → mail post-test
  *                    (dispatchPostTest, en background con `after`) → marca
  *                    "Mail enviado" = 'form dd/mm/yyyy HH:MM' en esa fila, así
- *                    el vigilante no la vuelve a mandar. Idempotente por email
+ *                    el vigilante no la vuelve a mandar. En paralelo etiqueta
+ *                    TIER A/B/C al contacto de ManyChat (lib/manychat, best-effort).
+ *                    Idempotente por email
  *                    (KV testfinal:, 10 min) y participa de la guardia
  *                    postest-sent: del vigilante (inflight antes del append,
  *                    fecha tras el envío): un email que ya recibió el post-test
@@ -864,9 +867,15 @@ async function stepFinal(body: unknown, headers: CorsHeaders): Promise<NextRespo
   // (5) Resultado en KV antes de responder; mail + marcas después de responder.
   await kvSet(kvKey, { status: 'done', ts: Date.now(), t0, token, pantalla: tier.pantalla, variante: tier.variante });
   const rowFinal = rowIndex;
-  await runAfter(() =>
-    despacharYMarcar(f, { pantalla: tier.pantalla, variante: tier.variante, score: tier.score }, tierEnvio, cols, rowFinal, yaEnviado)
-  );
+  await runAfter(async () => {
+    const [mail, mc] = await Promise.allSettled([
+      despacharYMarcar(f, { pantalla: tier.pantalla, variante: tier.variante, score: tier.score }, tierEnvio, cols, rowFinal, yaEnviado),
+      etiquetarTier(f.email, tierEnvio),
+    ]);
+    if (mail.status === 'rejected') console.error(LOG, 'despacharYMarcar error:', errMsg(mail.reason));
+    if (mc.status === 'rejected') console.error(LOG, 'manychat tier error:', errMsg(mc.reason));
+    else if (mc.value.motivo !== 'sin-token') console.log(LOG, 'manychat tier', { email: masked, tier: tierEnvio, ...mc.value });
+  });
   return NextResponse.json({ ok: true, pantalla: tier.pantalla, variante: tier.variante, token }, { headers });
 }
 

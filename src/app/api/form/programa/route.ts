@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logLeadProgramaWeb } from '@/lib/sheets-tiktok-programa';
+import { guardarContactoManyChat, parseManychatId, sourceConDm } from '@/lib/manychat';
 
 // Funnel programa DE — captura pre-test desde landing web (urologia.ar/test-de-ereccion).
 // Alta en Brevo #33, mail plain con el link al Typeform calificatorio
@@ -7,11 +8,14 @@ import { logLeadProgramaWeb } from '@/lib/sheets-tiktok-programa';
 // El mail es el mismo aprobado en el PRD tiktok-manychat-recupera-form:
 // URL limpia sin parámetros (entregabilidad); la atribución vive en Brevo
 // (SOURCE) y en el sheet (col B = bio-<source>), cruce por email con el CRM.
+// ManyChat (DM de Instagram / TikTok) manda además `manychat_id` ({Id de
+// contacto}): el canal pasa a `<source>-dm`, el id va a la col B del sheet y
+// a KV (lib/manychat) para etiquetar TIER/CLIENTE al contacto más adelante.
 const PROGRAMA_LIST_ID = 33; // "TIKTOK Leads PROGRAMA" en Brevo
 const SENDER = { name: 'Mauro Carrillo', email: 'mauro@urologia.ar' };
 const FORM_URL = 'https://urologia.ar/recupera-form';
 
-const SOURCES = ['web', 'instagram', 'tiktok'] as const;
+const SOURCES = ['web', 'instagram', 'tiktok', 'instagram-dm', 'tiktok-dm'] as const;
 type Source = (typeof SOURCES)[number];
 
 const ALLOWED_ORIGINS = [
@@ -166,11 +170,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const name = typeof body.name === 'string' ? body.name.trim() : undefined;
 
   const rawSource = typeof body.source === 'string' ? body.source.trim().toLowerCase() : '';
-  const source: Source = (SOURCES as readonly string[]).includes(rawSource)
+  const sourceBase: Source = (SOURCES as readonly string[]).includes(rawSource)
     ? (rawSource as Source)
     : 'web';
+  // Con id de ManyChat el lead llegó por DM: instagram → instagram-dm, tiktok → tiktok-dm.
+  const manychatId = parseManychatId(body.manychat_id);
+  const source = sourceConDm(sourceBase, manychatId) as Source;
 
   recordSubmission(ip);
+  if (manychatId) await guardarContactoManyChat(email, manychatId, source);
 
   const contact = await brevoCreateOrUpdateContact(email, name, source);
   if (!contact.ok) {
@@ -187,7 +195,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   // Sheet: best-effort, después del envío (fila con SUCCESS para que el
   // Apps Script del sheet nunca la reprocese).
-  const sheetLog = await logLeadProgramaWeb({ nombre: name || '', email, source });
+  const sheetLog = await logLeadProgramaWeb({ nombre: name || '', email, source, idContacto: manychatId ?? undefined });
   if (!sheetLog.ok) {
     console.error('Programa form sheet log failed (non-blocking)');
   }

@@ -10,6 +10,7 @@ import { markClienteFirmeSeguro } from '@/lib/sheets-firme-seguro';
 import { markClienteCombo } from '@/lib/sheets-combo';
 import { sendAffiliateSaleNotification } from '@/lib/email-affiliate';
 import { markClienteInCRM } from '@/lib/crm-sheet';
+import { etiquetarCliente } from '@/lib/manychat';
 import { cancelDripForEmail, enqueueRecupero } from '@/lib/email-drip';
 import {
   clienteCellText,
@@ -289,6 +290,12 @@ export async function POST(request: NextRequest): Promise<NextResponse<WebhookRe
         await logSesion({ nombre, email, fechaCompra });
       } catch (sesErr) {
         console.error('Sesiones sheet logging error (non-blocking):', sesErr);
+      }
+      // Etiqueta CLIENTE en el contacto de ManyChat (DM de IG/TikTok), best-effort.
+      try {
+        await etiquetarCliente(email);
+      } catch (mcErr) {
+        console.error('ManyChat CLIENTE error (non-blocking):', mcErr);
       }
     }
 

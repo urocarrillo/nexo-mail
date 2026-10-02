@@ -6,6 +6,7 @@ import {
   etiquetarCliente,
   etiquetarTier,
   leerContactoManyChat,
+  limpiarEtiquetas,
   listarEtiquetas,
   manychatHabilitado,
   obtenerContacto,
@@ -20,8 +21,10 @@ import {
  *   GET /api/admin/manychat-check?token=XXX&crear_etiquetas=1       → crea TIER A/B/C y CLIENTE si faltan
  *   GET /api/admin/manychat-check?token=XXX&email=a@b.com           → id en KV + contacto en ManyChat + sus etiquetas
  *   GET /api/admin/manychat-check?token=XXX&email=a@b.com&tag=TIER%20A   → aplica la etiqueta (TIER A|B|C o CLIENTE)
+ *   GET /api/admin/manychat-check?token=XXX&limpiar_etiquetas=1             → lista las etiquetas que borraría (dry run)
+ *   GET /api/admin/manychat-check?token=XXX&limpiar_etiquetas=1&confirm=borrar → las borra de la cuenta (irreversible)
  */
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 function autorizado(request: NextRequest): boolean {
   const url = new URL(request.url);
@@ -49,6 +52,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   if (sp.get('crear_etiquetas') === '1') out.crearEtiquetas = await crearEtiquetasFaltantes();
+  if (sp.get('limpiar_etiquetas') === '1') {
+    out.limpiarEtiquetas = await limpiarEtiquetas(sp.get('confirm') === 'borrar');
+  }
 
   const email = (sp.get('email') || '').trim().toLowerCase();
   if (email) {

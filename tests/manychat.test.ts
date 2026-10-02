@@ -31,3 +31,12 @@ describe('manychat: helpers puros', () => {
     expect(TAGS_PUENTE).toEqual(['TIER A', 'TIER B', 'TIER C', 'CLIENTE']);
   });
 });
+
+describe('manychat: etiquetas a conservar', () => {
+  it('incluye las del embudo y las del puente', () => {
+    const { ETIQUETAS_A_CONSERVAR } = jest.requireActual('@/lib/manychat');
+    expect(ETIQUETAS_A_CONSERVAR).toEqual(
+      expect.arrayContaining(['LEAD PROGRAMA', 'LEAD EP', 'PROBLEMA MAIL', 'PROGRAMA MAIL', 'TIER A', 'TIER B', 'TIER C', 'CLIENTE'])
+    );
+  });
+});

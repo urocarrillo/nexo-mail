@@ -270,3 +270,45 @@ export async function etiquetarCliente(email: string): Promise<ResultadoPuente> 
   if (r.motivo !== 'sin-token') console.log(LOG, 'cliente', r);
   return r;
 }
+
+/** Etiquetas que usa el embudo (4 automatizaciones principales + Nexo-mail). Todo lo demás es borrable. */
+export const ETIQUETAS_A_CONSERVAR: readonly string[] = [
+  'LEAD PROGRAMA',
+  'LEAD EP',
+  'PROBLEMA MAIL',
+  'PROGRAMA MAIL',
+  ...TAGS_PUENTE,
+];
+
+function normalizarEtiqueta(n: string): string {
+  // "📧PROBLEMA MAIL" → "PROBLEMA MAIL": se ignoran emojis y símbolos al comparar.
+  return n.replace(/[^\p{L}\p{N} ]/gu, '').replace(/\s+/g, ' ').trim().toUpperCase();
+}
+
+/**
+ * Borra de la cuenta (y de todos los contactos) las etiquetas que no están en
+ * ETIQUETAS_A_CONSERVAR. Sin `ejecutar` solo lista lo que borraría.
+ * POST /fb/page/removeTag {tag_id} — irreversible.
+ */
+export async function limpiarEtiquetas(ejecutar: boolean): Promise<{
+  conservar: string[];
+  borrar: string[];
+  borradas: string[];
+  errores: string[];
+}> {
+  const actuales = (await listarEtiquetas()) || [];
+  const keep = new Set(ETIQUETAS_A_CONSERVAR.map(normalizarEtiqueta));
+  const conservar = actuales.filter((t) => keep.has(normalizarEtiqueta(t.name)));
+  const borrar = actuales.filter((t) => !keep.has(normalizarEtiqueta(t.name)));
+  const borradas: string[] = [];
+  const errores: string[] = [];
+  if (ejecutar) {
+    for (const t of borrar) {
+      const r = await llamar('POST', '/fb/page/removeTag', { body: { tag_id: t.id } });
+      if (r.ok) borradas.push(t.name);
+      else errores.push(`${t.name}: ${r.error}`);
+      await new Promise((res) => setTimeout(res, 150)); // < 10 req/s
+    }
+  }
+  return { conservar: conservar.map((t) => t.name), borrar: borrar.map((t) => t.name), borradas, errores };
+}

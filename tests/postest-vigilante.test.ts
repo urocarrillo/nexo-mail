@@ -17,6 +17,12 @@ jest.mock('@vercel/kv', () => {
     get: jest.fn(async (key: string) => (store.has(key) ? store.get(key) : null)),
     del: jest.fn(async (key: string) => (store.delete(key) ? 1 : 0)),
     hgetall: jest.fn(async () => null),
+    incr: jest.fn(async (key: string) => {
+      const n = Number(store.get(key) || 0) + 1;
+      store.set(key, n);
+      return n;
+    }),
+    expire: jest.fn(async () => 1),
   };
   return { kv, __store: store, __reset: () => store.clear() };
 });
@@ -812,5 +818,52 @@ describe('heartbeat', () => {
     kvMock.__store.delete(`vigilante:heartbeat:${artToday()}`);
     await GET(req());
     expect(mockedAlerta.mock.calls[0][1]).toContain('Enviados en 24 h: A=1 B=0 C=1');
+  });
+});
+
+describe('lectura del Sheet: corte pasajero vs persistente', () => {
+  const sheetTimeout = (a1: string) => async (input: string, init?: RequestInit) => {
+    const url = decodeURIComponent(String(input));
+    if (url.includes('sheets.googleapis.com') && (init?.method || 'GET') === 'GET' && url.includes(`!${a1}`)) {
+      throw new Error('The operation was aborted due to timeout');
+    }
+    return baseFetch(input, init);
+  };
+
+  it('timeout suelto → reintenta dentro de la corrida y procesa normal, sin alerta', async () => {
+    let fallo = false;
+    fetchMock.mockImplementation(async (input: string, init?: RequestInit) => {
+      if (!fallo && String(input).includes('sheets.googleapis.com') && decodeURIComponent(String(input)).includes('!A2:')) {
+        fallo = true;
+        throw new Error('The operation was aborted due to timeout');
+      }
+      return baseFetch(input, init);
+    });
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    expect(mockedAlerta).not.toHaveBeenCalled();
+  });
+
+  it('falla una corrida entera → 500 sin alerta; la segunda seguida → alerta', async () => {
+    fetchMock.mockImplementation(sheetTimeout('A2:'));
+    const r1 = await GET(req());
+    expect(r1.status).toBe(500);
+    expect(mockedAlerta).not.toHaveBeenCalled();
+
+    const r2 = await GET(req());
+    expect(r2.status).toBe(500);
+    expect(mockedAlerta).toHaveBeenCalledTimes(1);
+    expect(mockedAlerta.mock.calls[0][0]).toBe('VIGILANTE: error leyendo el Sheet');
+    expect(mockedAlerta.mock.calls[0][1]).toContain('2 corridas seguidas');
+  });
+
+  it('una corrida OK en el medio reinicia el conteo', async () => {
+    fetchMock.mockImplementation(sheetTimeout('A2:'));
+    await GET(req());
+    fetchMock.mockImplementation(baseFetch);
+    expect((await GET(req())).status).toBe(200);
+    fetchMock.mockImplementation(sheetTimeout('A2:'));
+    await GET(req());
+    expect(mockedAlerta).not.toHaveBeenCalled();
   });
 });

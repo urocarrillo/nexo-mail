@@ -61,6 +61,8 @@ const SHEETS_TIMEOUT_MS = 10_000;
 const AUX_LOAD_TIMEOUT_MS = 10_000; // set enrolados, una vez por corrida
 const CLIENTES_LOAD_TIMEOUT_MS = 20_000; // mapa clientes (Woo pagina todo con cache fría)
 const CLIENTES_MISS_KEY = 'vigilante:clientes-miss'; // corridas seguidas sin mapa
+const SHEET_MISS_KEY = 'vigilante:sheet-miss'; // corridas seguidas sin poder leer el Sheet
+const SHEET_MISS_ALERTA = 2; // pasajero (1 corrida) = silencio; 2 seguidas = alerta
 const ART_OFFSET_MS = -3 * 60 * 60 * 1000; // hora Argentina (UTC-3, sin DST)
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -246,6 +248,22 @@ async function readRange(range: string): Promise<string[][]> {
   }
   const data = (await res.json()) as { values?: string[][] };
   return data.values || [];
+}
+
+/**
+ * Lectura inicial con un reintento ante error transitorio (timeout, 429, 5xx):
+ * un corte suelto de la API de Sheets no debe abortar la corrida ni alertar.
+ */
+async function readRangeConReintento(range: string): Promise<string[][]> {
+  try {
+    return await readRange(range);
+  } catch (err) {
+    const msg = errMsg(err);
+    if (!/timeout|abort|fetch failed|econnreset|socket|\((429|5\d\d)\)/i.test(msg)) throw err;
+    console.warn('postest-vigilante: reintento lectura Sheet', range, msg);
+    await sleep(1500);
+    return await readRange(range);
+  }
 }
 
 /** PUT de una sola celda (RAW). Reintenta una vez ante 429 (cuota de escritura). */
@@ -448,7 +466,7 @@ async function correr(dry: boolean, max: number, t0: number): Promise<NextRespon
   let values: string[][];
   let cols: Cols;
   try {
-    headers = (await readRange(`${CRM_TAB}!1:1`))[0] || [];
+    headers = (await readRangeConReintento(`${CRM_TAB}!1:1`))[0] || [];
     const resolved = resolverColumnas(headers);
     if (resolved.missing.length > 0) {
       const detalle =
@@ -460,13 +478,32 @@ async function correr(dry: boolean, max: number, t0: number): Promise<NextRespon
       return finish(500);
     }
     cols = resolved.cols;
-    values = await readRange(`${CRM_TAB}!A2:${colLetter(headers.length - 1)}`);
+    values = await readRangeConReintento(`${CRM_TAB}!A2:${colLetter(headers.length - 1)}`);
   } catch (err) {
     const msg = errMsg(err);
     stats.ok = false;
     stats.alerts.push(`lectura del Sheet falló: ${msg}`);
-    await alertaThrottled(stats, dry, 'VIGILANTE: error leyendo el Sheet', `${msg}\n\nNo se procesó nada.`);
+    // Un corte suelto de Google se resuelve solo en la corrida siguiente (las
+    // filas pendientes se toman igual): solo avisamos si falla corridas seguidas.
+    let seguidas = SHEET_MISS_ALERTA;
+    if (!dry) {
+      try {
+        seguidas = await kv.incr(SHEET_MISS_KEY);
+        await kv.expire(SHEET_MISS_KEY, 2 * 60 * 60);
+      } catch { /* KV: ante la duda, avisar */ }
+    }
+    if (seguidas >= SHEET_MISS_ALERTA) {
+      await alertaThrottled(
+        stats,
+        dry,
+        'VIGILANTE: error leyendo el Sheet',
+        `${msg}\n\nFalló ${seguidas} corridas seguidas. No se procesó nada.`,
+      );
+    }
     return finish(500);
+  }
+  if (!dry) {
+    try { await kv.del(SHEET_MISS_KEY); } catch { /* KV: ignorar */ }
   }
 
   const now = new Date();

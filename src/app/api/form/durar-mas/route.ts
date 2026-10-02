@@ -4,7 +4,7 @@ import {
   DURARMAS_SENDER_ENTREGA,
   mailEntrega,
 } from '@/lib/secuencia-durar-mas';
-import { enrollDurarMas } from '@/lib/email-drip';
+import { enrollDurarMas, plainToHtml } from '@/lib/email-drip';
 import { logLeadDurarMas } from '@/lib/sheets-durar-mas';
 
 // Funnel "Durar más" (curso de eyaculación precoz 3208) — captura desde la web
@@ -103,6 +103,7 @@ async function brevoSendEntrega(email: string, name: string): Promise<{ ok: bool
       replyTo: { email: DURARMAS_SENDER_ENTREGA.email },
       subject: mail.subject,
       textContent: mail.text,
+      htmlContent: plainToHtml(mail.text, ''), // link clickeable, aspecto texto plano
     }),
   });
 

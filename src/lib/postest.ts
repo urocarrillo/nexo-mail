@@ -12,7 +12,7 @@
 import { kv } from '@vercel/kv';
 import { getClienteInfo, clienteCellText, type ClientesMap, type EstadoCliente } from '@/lib/clientes';
 import { markClienteInCRM, markSecuenciaForEmails } from '@/lib/crm-sheet';
-import { enrollSecuencia, getEnrolledSecuenciaEmails, sendPlainSecuencia } from '@/lib/email-drip';
+import { enrollSecuencia, getEnrolledSecuenciaEmails, sendPlainSecuencia, plainToHtml } from '@/lib/email-drip';
 import {
   buildMailA0,
   buildMailB0,
@@ -225,6 +225,7 @@ async function brevoSendTransactional(
     replyTo: { email: SENDER.email },
     subject,
     textContent: text,
+    htmlContent: plainToHtml(text, ''), // link clickeable, aspecto texto plano
   };
 
   try {

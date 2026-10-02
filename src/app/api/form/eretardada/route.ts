@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { plainToHtml } from '@/lib/email-drip';
 
 // Landing "Volvé a disfrutar" (urologia.ar/volver-a-disfrutar) — lista de espera del futuro
 // curso de eyaculación retardada. Captura nombre + correo.
@@ -101,6 +102,7 @@ async function brevoSendWelcome(email: string, name: string): Promise<{ ok: bool
       replyTo: { email: SENDER.email },
       subject: mail.subject,
       textContent: mail.text,
+      htmlContent: plainToHtml(mail.text, ''), // link clickeable, aspecto texto plano
     }),
   });
 

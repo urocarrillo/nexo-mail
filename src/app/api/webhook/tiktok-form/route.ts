@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { plainToHtml } from '@/lib/email-drip';
 
 const TIKTOK_LIST_ID = 33; // "TIKTOK Leads PROGRAMA" en Brevo
 const SENDER = { name: 'Mauro Carrillo', email: 'mauro@urologia.ar' };
@@ -104,6 +105,7 @@ async function brevoSendTransactional(
     replyTo: { email: SENDER.email },
     subject,
     textContent: text,
+    htmlContent: plainToHtml(text, ''), // link clickeable, aspecto texto plano
   };
 
   const res = await fetch('https://api.brevo.com/v3/smtp/email', {

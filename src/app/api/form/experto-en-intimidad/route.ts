@@ -4,7 +4,7 @@ import {
   computeComboDates,
   mailEntrega,
 } from '@/lib/secuencia-combo';
-import { enrollCombo } from '@/lib/email-drip';
+import { enrollCombo, plainToHtml } from '@/lib/email-drip';
 import { logLeadCombo } from '@/lib/sheets-combo';
 
 // Funnel "Experto en Intimidad" (combo programa DE 3740 + curso EP 3208,
@@ -106,6 +106,7 @@ async function brevoSendEntrega(email: string, name: string): Promise<{ ok: bool
       replyTo: { email: COMBO_SENDER_ENTREGA.email },
       subject: mail.subject,
       textContent: mail.text,
+      htmlContent: plainToHtml(mail.text, ''), // link clickeable, aspecto texto plano
     }),
   });
 

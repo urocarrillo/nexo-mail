@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { plainToHtml } from '@/lib/email-drip';
 
 // Landing "Toma el control" (urologia.ar/toma-el-control) — captura para futura app free-will.
 const FREEWILL_LIST_ID = 34; // "app free-will" en Brevo
@@ -97,6 +98,7 @@ async function brevoSendWelcome(email: string, name: string): Promise<{ ok: bool
       replyTo: { email: SENDER.email },
       subject: mail.subject,
       textContent: mail.text,
+      htmlContent: plainToHtml(mail.text, ''), // link clickeable, aspecto texto plano
     }),
   });
 

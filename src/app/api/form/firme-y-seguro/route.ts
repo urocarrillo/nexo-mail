@@ -4,7 +4,7 @@ import {
   FIRMESEGURO_SENDER_ENTREGA,
   mailEntrega,
 } from '@/lib/secuencia-firme-seguro';
-import { enrollFirmeSeguro } from '@/lib/email-drip';
+import { enrollFirmeSeguro, plainToHtml } from '@/lib/email-drip';
 import { logLeadFirmeSeguro } from '@/lib/sheets-firme-seguro';
 
 // Funnel "Firme y Seguro" (curso Erección con Preservativo 1043) — captura
@@ -103,6 +103,7 @@ async function brevoSendEntrega(email: string, name: string): Promise<{ ok: bool
       replyTo: { email: FIRMESEGURO_SENDER_ENTREGA.email },
       subject: mail.subject,
       textContent: mail.text,
+      htmlContent: plainToHtml(mail.text, ''), // link clickeable, aspecto texto plano
     }),
   });
 

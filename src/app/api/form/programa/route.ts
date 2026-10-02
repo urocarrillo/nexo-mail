@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logLeadProgramaWeb } from '@/lib/sheets-tiktok-programa';
 import { guardarContactoManyChat, parseManychatId, sourceConDm } from '@/lib/manychat';
+import { plainToHtml } from '@/lib/email-drip';
 
 // Funnel programa DE — captura pre-test desde landing web (urologia.ar/test-de-ereccion).
 // Alta en Brevo #33, mail plain con el link al Typeform calificatorio
@@ -121,6 +122,9 @@ async function brevoSendTest(email: string, name: string): Promise<{ ok: boolean
       replyTo: { email: SENDER.email },
       subject: mail.subject,
       textContent: mail.text,
+      // Misma versión HTML mínima que la secuencia: el link queda clickeable
+      // en clientes que no autolinkean texto plano.
+      htmlContent: plainToHtml(mail.text, ''),
     }),
   });
 

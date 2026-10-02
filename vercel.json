@@ -20,6 +20,20 @@
       "destination": "/link"
     },
     {
+      "source": "/legendario",
+      "destination": "/legendario.html"
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "legendario.urologia.ar"
+        }
+      ],
+      "destination": "/legendario"
+    },
+    {
       "source": "/test",
       "destination": "/test.html"
     },

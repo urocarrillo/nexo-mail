@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { alertarFallaServidor, esServidorAServidor } from '@/lib/alerta-servidor';
 import {
   computeDurarMasDates,
   DURARMAS_SENDER_ENTREGA,
@@ -13,6 +14,7 @@ import { logLeadDurarMas } from '@/lib/sheets-durar-mas';
 // enrolamiento de la secuencia dm1..dm5.
 const DURARMAS_LIST_ID = 20; // "EYACULACIÓN Precoz" en Brevo
 
+const ENDPOINT = '/api/form/durar-mas';
 const SOURCES = ['web', 'instagram', 'tiktok'] as const;
 type Source = (typeof SOURCES)[number];
 
@@ -126,13 +128,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const headers = corsHeaders(origin);
 
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
-  if (isRateLimited(ip)) {
+  const s2s = esServidorAServidor(origin);
+  // Con clave válida (ManyChat) no se limita por IP: ManyChat sale de pocas IPs
+  // y un pico de DMs bloquearía leads reales. A esos se los limita por email.
+  const confiable = hasValidApiKey(request);
+  if (!confiable && isRateLimited(ip)) {
+    if (s2s) await alertarFallaServidor(ENDPOINT, '429', `IP ${ip} sin clave válida superó el límite por minuto.`);
     return NextResponse.json({ success: false, error: 'Too many requests' }, { status: 429, headers });
   }
 
   // Origen: navegador desde los dominios permitidos, o server-to-server
   // (ManyChat) con x-api-key. El rate limit por IP aplica en ambos casos.
   if (!hasValidApiKey(request) && (!origin || !ALLOWED_ORIGINS.includes(origin))) {
+    if (s2s) await alertarFallaServidor(ENDPOINT, '403', 'La solicitud llegó sin clave válida (¿header x-api-key vacío o mal escrito?).');
     return NextResponse.json({ success: false, error: 'Origin not allowed' }, { status: 403, headers });
   }
 
@@ -140,6 +148,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     body = (await request.json()) as Record<string, unknown>;
   } catch {
+    if (s2s) await alertarFallaServidor(ENDPOINT, '400-json', 'El cuerpo no es JSON válido (¿body truncado en la solicitud externa?).');
     return NextResponse.json({ success: false, error: 'Invalid JSON' }, { status: 400, headers });
   }
 
@@ -150,6 +159,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const email = typeof body.email === 'string' ? body.email.toLowerCase().trim() : '';
   if (!email || !validateEmail(email)) {
+    if (s2s) await alertarFallaServidor(ENDPOINT, '400-email', `Email inválido o vacío en el cuerpo (¿variable {Correo electrónico} sin picker?). Valor recibido: "${String(body.email ?? '').slice(0, 60)}".`);
     return NextResponse.json({ success: false, error: 'Email inválido' }, { status: 400, headers });
   }
   const name = typeof body.name === 'string' ? body.name.trim() : undefined;
@@ -160,7 +170,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     : 'web';
   const leadSource = `durar-mas-${source}`;
 
-  recordSubmission(ip);
+  // Límite: por IP para navegadores, por email para ManyChat (clave válida).
+  const rlKey = confiable ? `mail:${email}` : ip;
+  if (confiable && isRateLimited(rlKey)) {
+    return NextResponse.json({ success: false, error: 'Too many requests' }, { status: 429, headers });
+  }
+  recordSubmission(rlKey);
 
   const contact = await brevoCreateOrUpdateContact(email, name, leadSource);
   if (!contact.ok) {
@@ -177,10 +192,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     enrollDurarMas({ email, name: nombre || undefined, dates: computeDurarMasDates(new Date()) }),
   ]);
 
-  if (entrega.status === 'rejected') {
-    console.error('Durar-mas entrega mail error:', entrega.reason);
-  } else if (!entrega.value.ok) {
-    console.error('Durar-mas entrega mail error:', entrega.value.error);
+  const errorEntrega =
+    entrega.status === 'rejected' ? String(entrega.reason) : !entrega.value.ok ? String(entrega.value.error) : '';
+  if (errorEntrega) {
+    console.error('Durar-mas entrega mail error:', errorEntrega);
+    // El lead quedó en Brevo y en la secuencia, pero sin el mail de entrega: avisar.
+    await alertarFallaServidor(ENDPOINT, 'entrega', `No salió el mail de entrega a ${email}. Error: ${errorEntrega.slice(0, 300)}. Reenviar a mano.`);
   }
   if (sheetLog.status === 'rejected') {
     console.error('Durar-mas sheet log error:', sheetLog.reason);

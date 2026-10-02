@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { alertarFallaServidor, esServidorAServidor } from '@/lib/alerta-servidor';
 import { logLeadProgramaWeb } from '@/lib/sheets-tiktok-programa';
 import { guardarContactoManyChat, parseManychatId, sourceConDm } from '@/lib/manychat';
 import { plainToHtml } from '@/lib/email-drip';
@@ -16,6 +17,7 @@ const PROGRAMA_LIST_ID = 33; // "TIKTOK Leads PROGRAMA" en Brevo
 const SENDER = { name: 'Mauro Carrillo', email: 'mauro@urologia.ar' };
 const FORM_URL = 'https://urologia.ar/recupera-form';
 
+const ENDPOINT = '/api/form/programa';
 const SOURCES = ['web', 'instagram', 'tiktok', 'instagram-dm', 'tiktok-dm'] as const;
 type Source = (typeof SOURCES)[number];
 
@@ -147,11 +149,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const headers = corsHeaders(origin);
 
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
-  if (isRateLimited(ip)) {
+  const s2s = esServidorAServidor(origin);
+  // Con clave válida (ManyChat) no se limita por IP: ManyChat sale de pocas IPs
+  // y un pico de DMs bloquearía leads reales. A esos se los limita por email.
+  const confiable = hasValidApiKey(request);
+  if (!confiable && isRateLimited(ip)) {
+    if (s2s) await alertarFallaServidor(ENDPOINT, '429', `IP ${ip} sin clave válida superó el límite por minuto.`);
     return NextResponse.json({ success: false, error: 'Too many requests' }, { status: 429, headers });
   }
 
   if (!hasValidApiKey(request) && (!origin || !ALLOWED_ORIGINS.includes(origin))) {
+    if (s2s) await alertarFallaServidor(ENDPOINT, '403', 'La solicitud llegó sin clave válida (¿header x-api-key vacío o mal escrito?).');
     return NextResponse.json({ success: false, error: 'Origin not allowed' }, { status: 403, headers });
   }
 
@@ -159,6 +167,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     body = (await request.json()) as Record<string, unknown>;
   } catch {
+    if (s2s) await alertarFallaServidor(ENDPOINT, '400-json', 'El cuerpo no es JSON válido (¿body truncado en la solicitud externa?).');
     return NextResponse.json({ success: false, error: 'Invalid JSON' }, { status: 400, headers });
   }
 
@@ -169,6 +178,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const email = typeof body.email === 'string' ? body.email.toLowerCase().trim() : '';
   if (!email || !validateEmail(email)) {
+    if (s2s) await alertarFallaServidor(ENDPOINT, '400-email', `Email inválido o vacío en el cuerpo (¿variable {Correo electrónico} sin picker?). Valor recibido: "${String(body.email ?? '').slice(0, 60)}".`);
     return NextResponse.json({ success: false, error: 'Email inválido' }, { status: 400, headers });
   }
   const name = typeof body.name === 'string' ? body.name.trim() : undefined;
@@ -181,7 +191,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const manychatId = parseManychatId(body.manychat_id);
   const source = sourceConDm(sourceBase, manychatId) as Source;
 
-  recordSubmission(ip);
+  // Límite: por IP para navegadores, por email para ManyChat (clave válida).
+  const rlKey = confiable ? `mail:${email}` : ip;
+  if (confiable && isRateLimited(rlKey)) {
+    return NextResponse.json({ success: false, error: 'Too many requests' }, { status: 429, headers });
+  }
+  recordSubmission(rlKey);
   if (manychatId) await guardarContactoManyChat(email, manychatId, source);
 
   const contact = await brevoCreateOrUpdateContact(email, name, source);
@@ -194,6 +209,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const send = await brevoSendTest(email, nombre);
   if (!send.ok) {
     console.error('Programa form mail error:', send.error);
+    await alertarFallaServidor(ENDPOINT, 'envio', `No salió el mail del test a ${email} (el contacto sí quedó en Brevo #33). Error: ${String(send.error).slice(0, 300)}.`);
     return NextResponse.json({ success: false, error: 'Error al enviar' }, { status: 502, headers });
   }
 

@@ -49,6 +49,10 @@ const LEGACY_COUPON_VALIDITY_MS = 24 * 60 * 60 * 1000;
 const IMMEDIATE_WINDOW_MS = 60 * 1000; // si el envío cae dentro del próximo minuto, sale sin scheduledAt
 const ART_OFFSET_MS = -3 * 60 * 60 * 1000; // Argentina no tiene horario de verano
 const BREVO_TIMEOUT_MS = 10000;
+// Copia oculta de cada mail post-consulta para verificar el envío y reenviarlo
+// si el paciente dice que no le llegó (Mauro, 02/10/2026). Va en el mismo envío
+// (mismo messageId), así que cancelar el turno también revoca la copia.
+const COPIA_POSTCONSULTA = 'contacto.urologocarrillo@gmail.com';
 
 export interface ReservaPendiente {
   eventUri: string;
@@ -146,9 +150,9 @@ export async function enviarMailPostConsulta(params: {
   couponCode: string;
   sendAt: Date;
   now?: Date;
-  cc?: string[];
+  bcc?: string[];
 }): Promise<{ success: boolean; messageId?: string; scheduledAt?: string; error?: string }> {
-  const { email, name, couponCode, sendAt, cc } = params;
+  const { email, name, couponCode, sendAt, bcc = [COPIA_POSTCONSULTA] } = params;
   const now = params.now ?? new Date();
   const templateId = parseInt(process.env.CALENDLY_EMAIL_TEMPLATE_ID || '0', 10);
   const apiKey = process.env.BREVO_API_KEY || '';
@@ -166,7 +170,8 @@ export async function enviarMailPostConsulta(params: {
     tags: ['post-consulta'],
   };
   if (scheduledAt) body.scheduledAt = scheduledAt;
-  if (cc && cc.length > 0) body.cc = cc.map(e => ({ email: e }));
+  const copias = bcc.filter(e => e.toLowerCase() !== email.toLowerCase());
+  if (copias.length > 0) body.bcc = copias.map(e => ({ email: e }));
 
   try {
     const res = await fetch('https://api.brevo.com/v3/smtp/email', {
